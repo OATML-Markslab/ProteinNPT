@@ -1,0 +1,10 @@
+{
+    "location": "data/unsupervised_fitness_predictions/substitutions",
+    "var_name":{
+        "MSA_Transformer_pred": "MSA_Transformer",
+        "ESM1v_pred": "ESM1v",
+        "TranceptEVE_pred": "TranceptEVE_L",
+        "Tranception_pred": "Tranception_L",
+        "DeepSequence_pred":"DeepSequence"
+    }
+}

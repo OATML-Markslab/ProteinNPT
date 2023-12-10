@@ -1,0 +1,22 @@
+{
+    "fitness": {
+        "type": "continuous",
+        "dim": 1,
+        "var_name": "DMS_score",
+        "location": "data/fitness",
+        "in_NPT_loss": true
+    },
+    "unsupervised_prediction": {
+        "type": "continuous",
+        "dim": 1,
+        "all_possible_var_names": {
+            "MSA_Transformer": "MSA_Transformer",
+            "ESM1v": "ESM1v",
+            "TranceptEVE": "TranceptEVE_L",
+            "Tranception": "Tranception_L",
+            "DeepSequence":"DeepSequence"
+        },
+        "location": "data/unsupervised_fitness_predictions/substitutions",
+        "in_NPT_loss": false
+    }
+}

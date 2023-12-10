@@ -1,0 +1,24 @@
+name: proteinnpt_env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - anaconda
+  - defaults
+  - pypi
+dependencies:
+  - python
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - tqdm
+  - pip
+  - biopython
+  - pytorch=1.13.1
+  - pytorch-cuda=11.7
+  - pip:
+      - wandb
+      - transformers
+      - tokenizers
+      - datasets

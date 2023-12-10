@@ -1,0 +1,9 @@
+{
+    "fitness": {
+        "type": "continuous",
+        "dim": 1,
+        "var_name": "DMS_score",
+        "location": "data/fitness",
+        "in_NPT_loss": true
+    }
+}

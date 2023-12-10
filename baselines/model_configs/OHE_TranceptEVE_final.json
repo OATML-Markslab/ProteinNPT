@@ -1,0 +1,19 @@
+{
+    "model_type": "TranceptEVE_pred",
+    "target_config_location":"./utils/target_configs/fitness.json",
+    "unsupervised_fitness_pred_config_location":"./utils/input_configs/unsupervised_fitness_predictions.json",
+    "model_name_suffix": "OHE_TranceptEVE_final",
+    "aa_embeddings": "One_hot_encoding",
+    "target_prediction_head": "One_hot_encoding",
+    "target_prediction_model": "linear",
+    "weight_decay": 5e-3,
+    "num_total_training_steps": 10000,
+    "num_logging_training_steps": 10,
+    "num_saving_training_steps": 20000,
+    "num_eval_steps": 100,
+    "num_warmup_steps": 100,
+    "gradient_accumulation": 1,
+    "training_num_assay_sequences_per_batch_per_gpu": 64,
+    "eval_num_sequences_to_score_per_batch_per_gpu": 64,
+    "seed": 2023
+}
