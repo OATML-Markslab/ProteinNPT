@@ -58,9 +58,11 @@ We also provide an example script to train a ProteiNPT or baseline model to pred
 This project is available under the MIT license found in the LICENSE file in this GitHub repository.
 
 ## Acknowledgements
-The utils in this codebase leverages code from:
+The `utils` in this codebase leverage code from:
 - [Tranception](https://github.com/OATML-Markslab/Tranception)
 - [ESM](https://github.com/facebookresearch/esm)
+- hhfilter (from the [hhsuite](https://github.com/soedinglab/hh-suite))
+- [clustal-omega](http://www.clustal.org/omega/)
 
 ## References
 If you use this codebase, please cite the following paper:
