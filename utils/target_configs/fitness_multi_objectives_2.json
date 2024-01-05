@@ -1,0 +1,16 @@
+{
+    "fitness1": {
+        "type": "continuous",
+        "dim": 1,
+        "var_name": "DMS_score",
+        "in_NPT_loss": true,
+        "main_target": true
+    },
+    "fitness2": {
+        "type": "continuous",
+        "dim": 1,
+        "var_name": "DMS_score",
+        "in_NPT_loss": true,
+        "main_target": false
+    }
+}

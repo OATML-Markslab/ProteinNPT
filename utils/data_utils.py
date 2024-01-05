@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 import torch
+import h5py
 from datasets import Dataset
-import random 
 
 def standardize(x):
     return (x - x.mean()) / x.std()
@@ -36,36 +36,42 @@ def split_data_based_on_test_fold_index(dataframe, fold_variable_name = 'fold_mo
     del test[fold_variable_name]
     return train, val, test
 
-def get_train_val_test_data(args, assay_file_name):
+def get_train_val_test_data(args, assay_file_names):
     target_names = args.target_config.keys() 
     assay_data={}
     merge = None
-    if "fitness" not in target_names:
-        print("Error: No fitness variable detected (used to detect main CV splits). Exiting")
-        sys.exit(0)
-    else:
-        print("fitness")
-        assay_data["fitness"] = pd.read_csv(args.target_config["fitness"]["location"] + os.sep + assay_file_name)[['mutant','mutated_sequence',args.target_config["fitness"]["var_name"],args.fold_variable_name]] 
-        assay_data["fitness"].columns = ['mutant','mutated_sequence', 'fitness', args.fold_variable_name]
-        merge = assay_data["fitness"]
+    main_target_name = None
+    main_target_name_count = 0
+    for target in target_names:
+        if args.target_config[target]["main_target"]: 
+            main_target_name=target
+            main_target_name_count+=1
+    assert main_target_name is not None, "No main target referenced. Please update config to select a unique main target."
+    assert main_target_name_count <= 1, "Several main targets referenced. Please update config to select a unique main target."
+    
+    assay_data[main_target_name] = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_names[main_target_name])[['mutant','mutated_sequence',args.target_config[main_target_name]["var_name"],args.fold_variable_name]] 
+    assay_data[main_target_name].columns = ['mutant','mutated_sequence', main_target_name, args.fold_variable_name]
+    merge = assay_data[main_target_name]
     
     for target_name in target_names:
-        if target_name!="fitness":
+        if target_name!=main_target_name:
             print(target_name)
-            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_name)[['mutant',args.target_config[target_name]["var_name"]]] 
+            print(args.target_config)
+            print(assay_file_names)
+            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name])[['mutant',args.target_config[target_name]["var_name"]]] 
             assay_data[target_name].columns = ['mutant',target_name]
             merge = pd.merge(merge, assay_data[target_name], how='left', on='mutant')
             
-    if args.unsupervised_fitness_pred_config:
-        unsupervised_fitness_predictions = pd.read_csv(args.unsupervised_fitness_pred_config["location"] + os.sep + assay_file_name)[['mutant',args.unsupervised_fitness_pred_config["var_name"][args.model_type]]]
-        unsupervised_fitness_predictions.columns = ['mutant','unsupervised_fitness_predictions']
-        unsupervised_fitness_predictions['unsupervised_fitness_predictions'] = standardize(unsupervised_fitness_predictions['unsupervised_fitness_predictions'])
-        merge = pd.merge(merge,unsupervised_fitness_predictions,how='inner',on='mutant')
+    if args.augmentation=="zero_shot_fitness_predictions_covariate":
+        zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])[['mutant',args.zero_shot_fitness_predictions_var_name]]
+        zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
+        zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
+        merge = pd.merge(merge,zero_shot_fitness_predictions,how='inner',on='mutant')
 
     train_val_test_splits = split_data_based_on_test_fold_index(
         dataframe = merge, 
-        fold_variable_name = args.fold_variable_name, 
-        test_fold_index = args.test_fold_index, 
+        fold_variable_name = args.fold_variable_name,
+        test_fold_index = args.test_fold_index,
         use_validation_set = args.use_validation_set
     )
     splits_dict = {}
@@ -74,14 +80,14 @@ def get_train_val_test_data(args, assay_file_name):
         splits_dict[split_name] = {}
         splits_dict[split_name]['mutant_mutated_seq_pairs'] = list(zip(list(split['mutant']),list(split['mutated_sequence'])))
         raw_targets = {target_name: split[target_name] for target_name in target_names}
-        if args.unsupervised_fitness_pred_config: raw_targets['unsupervised_fitness_predictions'] = split['unsupervised_fitness_predictions']
+        if args.augmentation=="zero_shot_fitness_predictions_covariate": raw_targets['zero_shot_fitness_predictions'] = split['zero_shot_fitness_predictions']
         if split_name=="train":
             raw_targets, target_processing = preprocess_training_targets(raw_targets, args.target_config)
         else:
             raw_targets = preprocess_test_targets(raw_targets, args.target_config, target_processing)
         for target_name in target_names: 
             splits_dict[split_name][target_name] = raw_targets[target_name]
-        if args.unsupervised_fitness_pred_config: splits_dict[split_name]['unsupervised_fitness_predictions'] = raw_targets['unsupervised_fitness_predictions']
+        if args.augmentation=="zero_shot_fitness_predictions_covariate": splits_dict[split_name]['zero_shot_fitness_predictions'] = raw_targets['zero_shot_fitness_predictions']
     # load dict into dataset objects
     train_data = Dataset.from_dict(splits_dict['train'])
     val_data = Dataset.from_dict(splits_dict['val']) if args.use_validation_set else None
@@ -98,7 +104,7 @@ def preprocess_training_targets(training_targets, target_config):
     """
     target_processing = {}
     for target_name in training_targets.keys():
-        if (target_name in target_config and target_config[target_name]["type"]=='continuous') or (target_name=='unsupervised_fitness_predictions'):
+        if (target_name in target_config and target_config[target_name]["type"]=='continuous') or (target_name=='zero_shot_fitness_predictions'):
             # Standard scale
             target_processing[target_name]={}
             target_processing[target_name]['mean']=np.nanmean(training_targets[target_name])
@@ -106,7 +112,6 @@ def preprocess_training_targets(training_targets, target_config):
             target_processing[target_name]['P95']=np.nanquantile(np.array(training_targets[target_name]), q=0.95)
             print("Target processing train set: {}".format(target_processing))
             training_targets[target_name] = (training_targets[target_name] - target_processing[target_name]['mean']) / target_processing[target_name]['std']
-            if target_name in ['stability']: training_targets[target_name] = - training_targets[target_name] #flip sign so that directionality aligned with fitness (e.g., lower ddG means higher fitness)
         else:
             # One-hot encoding
             target_processing[target_name]={}
@@ -126,9 +131,8 @@ def preprocess_test_targets(test_targets, target_config, target_processing):
     Applies target processing learned from training data
     """
     for target_name in test_targets.keys():
-        if (target_name in target_config and target_config[target_name]["type"]=='continuous') or (target_name=='unsupervised_fitness_predictions'):
+        if (target_name in target_config and target_config[target_name]["type"]=='continuous') or (target_name=='zero_shot_fitness_predictions'):
             test_targets[target_name] = (test_targets[target_name] - target_processing[target_name]['mean']) / target_processing[target_name]['std']
-            if target_name in ['stability']: test_targets[target_name] = - test_targets[target_name]
         else:
             test_targets[target_name] = torch.tensor([target_processing[target_name]['category_to_index'][val] for val in test_targets[target_name]])
     return test_targets
@@ -222,7 +226,7 @@ def mask_targets(inputs, input_target_type , target_processing, proba_target_mas
 
 def collate_fn_protein_npt(raw_batch):
     keys = raw_batch[0].keys()
-    target_keys = list(set(keys)-set(['mutant_mutated_seq_pairs'])) #target_keys also includes unsupervised fitness predictions if we pass that as input as well
+    target_keys = list(set(keys)-set(['mutant_mutated_seq_pairs'])) #target_keys also includes zero-shot fitness predictions if we pass that as input as well
     batch = {}
     for key in keys:
         batch[key] = []
@@ -284,15 +288,19 @@ def slice_sequences(list_mutant_mutated_seq_pairs, max_positions=1024, method="r
     else: #Baseline output
         return list_mutant_mutated_seq_pairs, batch_target_labels, scoring_optimal_window
 
-def get_indices_retrieved_embeddings(batch, embeddings_dict, number_of_mutated_seqs_to_score=None):
+def get_indices_retrieved_embeddings(batch, embeddings_dict_location, number_of_mutated_seqs_to_score=None):
     batch_mutants, batch_sequences = zip(*batch['mutant_mutated_seq_pairs'])
-    num_all_embeddings = len(embeddings_dict['mutants'])
-    mutants_embeddings_dict = {'mutants': embeddings_dict['mutants'], 'mutant_index': range(num_all_embeddings)}
+    with h5py.File(embeddings_dict_location, 'r') as h5f:
+        num_all_embeddings = len(h5f['mutants'])
+        list_mutants = [x.decode('utf-8') for x in h5f['mutants'][:]]
+        mutant_indices = range(num_all_embeddings)
+    mutants_embeddings_dict = {'mutants': list_mutants, 'mutant_index': mutant_indices}
     mutants_embeddings_df = pd.DataFrame.from_dict(mutants_embeddings_dict, orient='columns')
-    if number_of_mutated_seqs_to_score is not None: batch_mutants=batch_mutants[:number_of_mutated_seqs_to_score] #Select first elem to score to avoid repeats in PNPT emnbeddings recovery
+    if number_of_mutated_seqs_to_score is not None:
+        batch_mutants = batch_mutants[:number_of_mutated_seqs_to_score]
     batch_mutants_df = pd.DataFrame(batch_mutants, columns=['mutants'])
-    intersection = pd.merge(batch_mutants_df,mutants_embeddings_df, how='inner', on='mutants')
-    return intersection['mutant_index'].values
+    intersection = pd.merge(batch_mutants_df, mutants_embeddings_df, how='inner', on='mutants')
+    return np.array(intersection['mutant_index'].values)
 
 def pnpt_spearmanr(prediction,target):
     mask_missing_values = np.isnan(target) | np.equal(target, -100) #In PNPT missing values are never masked so corresponding labels are always set to -100

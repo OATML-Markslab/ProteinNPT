@@ -1,8 +1,8 @@
 {
     "model_type": "ESM1v_pred",
-    "target_config_location":"./utils/target_configs/fitness.json",
     "model_name_suffix": "OHE_not_augmented_final",
     "aa_embeddings": "One_hot_encoding",
+    "augmentation": "None",
     "target_prediction_head": "One_hot_encoding",
     "target_prediction_model": "linear",
     "weight_decay": 5e-3,

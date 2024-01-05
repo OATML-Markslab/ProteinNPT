@@ -3,7 +3,11 @@ import random
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+import tempfile
 from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+from Bio.Align.Applications import ClustalOmegaCommandline
 
 class MSA_processing:
     def __init__(self,
@@ -247,3 +251,35 @@ def process_MSA(args, MSA_filename, MSA_weights_filename):
     filtered_MSA_filename = filter_msa(filename = args.MSA_data_folder + os.sep + MSA_filename, path_to_hhfilter = args.path_to_hhfilter)
     MSA_all_sequences, MSA_non_ref_sequences_weights = compute_sequence_weights(MSA_filename = filtered_MSA_filename, MSA_weights_filename = args.MSA_weight_data_folder + os.sep + MSA_weights_filename)
     return MSA_all_sequences, MSA_non_ref_sequences_weights
+
+def align_new_sequences_to_msa(MSA_sequences, new_sequences, new_mutants, clustalomega_path):
+    """
+    Helps realign mutated sequences with sequences in a MSA. Useful to compute embeddings of indel 
+    """
+    # Convert MSA_sequences and new_sequence to a list of SeqRecord objects
+    records = [SeqRecord(Seq(seq), id=name) for name, seq in MSA_sequences]
+    for new_sequence,new_mutant in zip(new_sequences,new_mutants):
+        records.append(SeqRecord(Seq(new_sequence), id=new_mutant))
+    # Create a temporary file with the MSA and the new sequence combined
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp_file:
+        tmp_filename = tmp_file.name
+        for record in records:
+            tmp_file.write(f">{record.id}\n{record.seq}\n")
+    # Use ClustalOmega to realign everything
+    output_filename = tempfile.NamedTemporaryFile(delete=False).name
+    clustalomega_cline = ClustalOmegaCommandline(
+        cmd=clustalomega_path,
+        infile=tmp_filename,
+        outfile=output_filename, 
+        verbose=True, 
+        auto=True, 
+        force=True
+    )
+    stdout, stderr = clustalomega_cline()
+    os.remove(tmp_filename)
+    # Parse the aligned sequences from the output file and convert to the desired format
+    aligned_records = list(SeqIO.parse(output_filename, "fasta"))
+    aligned_sequences = [(record.id, str(record.seq)) for record in aligned_records]
+    # Remove the temporary output file
+    os.remove(output_filename)
+    return aligned_sequences

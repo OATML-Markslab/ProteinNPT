@@ -15,6 +15,7 @@ dependencies:
   - tqdm
   - pip
   - biopython
+  - h5py
   - pytorch=1.13.1
   - pytorch-cuda=11.7
   - pip:

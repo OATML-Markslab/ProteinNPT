@@ -11,8 +11,8 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 import baselines
-import protein_npt
-from utils.data_utils import collate_fn_protein_npt
+import proteinnpt
+from .data_utils import collate_fn_protein_npt
 
 def get_parameter_names(model, forbidden_layer_types):
     """
@@ -156,18 +156,17 @@ class Trainer():
             optimizer.zero_grad(set_to_none=True)
             lr = scheduler(training_step)
             update_lr_optimizer(optimizer, lr)
-            reconstruction_loss_coeff = get_reconstruction_loss_coefficient(training_step, num_total_training_steps=self.args.num_total_training_steps) if (self.model.model_type=="ProteinNPT" and not self.args.PNPT_no_reconstruction_error) else 0
+            reconstruction_loss_coeff = get_reconstruction_loss_coefficient(training_step, num_total_training_steps=self.args.num_total_training_steps) if (self.model.model_type=="ProteinNPT" and not self.model.PNPT_no_reconstruction_error) else 0
             for gradient_accum_step in range(self.args.gradient_accumulation):
                 try:
                     batch = next(train_iterator)
                 except:
                     num_epochs +=1
-                    print("Completed {} training epoch(s).".format(num_epochs))
                     train_iterator = iter(train_loader)
                     batch = next(train_iterator)
                 
                 if self.model.model_type=="ProteinNPT":
-                    processed_batch = protein_npt.data_processing.process_batch(
+                    processed_batch = proteinnpt.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 
@@ -177,8 +176,8 @@ class Trainer():
                         MSA_start_position = self.MSA_start_position, 
                         MSA_end_position = self.MSA_end_position,
                         target_processing = self.target_processing,
-                        training_sequences = None if not self.args.PNPT_fixed_helper_points else self.train_data,
-                        proba_target_mask = 0.15 if not self.args.PNPT_fixed_helper_points else 1.0, 
+                        training_sequences = None,
+                        proba_target_mask = 0.15,
                         proba_aa_mask = 0.15,
                         eval_mode = False,
                         device=self.model.device,
@@ -194,17 +193,16 @@ class Trainer():
                         MSA_weights = self.MSA_weights,
                         MSA_start_position = self.MSA_start_position, 
                         MSA_end_position = self.MSA_end_position,
-                        mirror = self.args.data_augmentation_mirror,
                         device=self.model.device,
                         eval_mode=False,
                         indel_mode=self.args.indel_mode
                     )
 
-                if self.args.unsupervised_fitness_pred_config: 
-                    unsupervised_fitness_predictions = processed_batch['target_labels']['unsupervised_fitness_predictions'].view(-1,1)
-                    del processed_batch['target_labels']['unsupervised_fitness_predictions']
+                if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+                    zero_shot_fitness_predictions = processed_batch['target_labels']['zero_shot_fitness_predictions'].view(-1,1)
+                    del processed_batch['target_labels']['zero_shot_fitness_predictions']
                 else:
-                    unsupervised_fitness_predictions = None
+                    zero_shot_fitness_predictions = None
                 
                 if self.args.training_fp16:
                     with torch.cuda.amp.autocast():
@@ -212,7 +210,7 @@ class Trainer():
                             output = self.model(
                                 tokens=processed_batch['masked_tokens'],
                                 targets=processed_batch['masked_targets'],
-                                unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                                zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                                 sequence_embeddings=processed_batch['sequence_embeddings']
                             )
                             total_loss, reconstruction_loss, target_prediction_loss_dict = self.model.protein_npt_loss(
@@ -226,7 +224,7 @@ class Trainer():
                         else:
                             output = self.model(
                                 tokens=processed_batch['input_tokens'],
-                                unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                                zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                                 sequence_embeddings=processed_batch['sequence_embeddings']
                             )
                             total_loss, target_prediction_loss_dict = self.model.prediction_loss(
@@ -240,7 +238,7 @@ class Trainer():
                         output = self.model(
                             tokens=processed_batch['masked_tokens'],
                             targets=processed_batch['masked_targets'],
-                            unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                            zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                             sequence_embeddings=processed_batch['sequence_embeddings']
                         )
                         total_loss, reconstruction_loss, target_prediction_loss_dict = self.model.protein_npt_loss(
@@ -256,7 +254,7 @@ class Trainer():
                     else:
                         output = self.model(
                             tokens=processed_batch['input_tokens'],
-                            unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                            zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                             sequence_embeddings=processed_batch['sequence_embeddings']
                         )
                         total_loss, target_prediction_loss_dict = self.model.prediction_loss(
@@ -368,7 +366,7 @@ class Trainer():
         }
         return trainer_final_status
 
-    def eval(self, test_data, output_all_predictions=False, need_head_weights=False, location_save_attention= None, train_data = None, reconstruction_loss_weight=0.5, selected_indices_seed=0):
+    def eval(self, test_data, output_all_predictions=False, need_head_weights=False, train_data = None, reconstruction_loss_weight=0.5, selected_indices_seed=0):
         """
         total_eval_target_prediction_loss is the sum of all target prediction losses across all targets
         total_eval_target_prediction_loss contains the breakdown by target
@@ -405,11 +403,10 @@ class Trainer():
 
             for batch in tqdm.tqdm(eval_iterator):
                 if output_all_predictions: 
-                    replication_factor = 2 if self.args.data_augmentation_mirror else 1
-                    output_scores['mutated_sequence'] += list(zip(*batch['mutant_mutated_seq_pairs']))[1] * replication_factor
-                    output_scores['mutant'] += list(zip(*batch['mutant_mutated_seq_pairs']))[0] * replication_factor               
+                    output_scores['mutated_sequence'] += list(zip(*batch['mutant_mutated_seq_pairs']))[1]
+                    output_scores['mutant'] += list(zip(*batch['mutant_mutated_seq_pairs']))[0]
                 if self.model.model_type=="ProteinNPT":
-                    processed_batch = protein_npt.data_processing.process_batch(
+                    processed_batch = proteinnpt.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 
@@ -437,25 +434,23 @@ class Trainer():
                         MSA_weights = self.MSA_weights,
                         MSA_start_position = self.MSA_start_position, 
                         MSA_end_position = self.MSA_end_position,
-                        mirror = self.args.data_augmentation_mirror,
                         device=self.model.device,
                         eval_mode=True,
                         indel_mode=self.args.indel_mode
                     )
-                if self.args.unsupervised_fitness_pred_config: 
-                    unsupervised_fitness_predictions = processed_batch['target_labels']['unsupervised_fitness_predictions'].view(-1,1)
-                    del processed_batch['target_labels']['unsupervised_fitness_predictions']
+                if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+                    zero_shot_fitness_predictions = processed_batch['target_labels']['zero_shot_fitness_predictions'].view(-1,1)
+                    del processed_batch['target_labels']['zero_shot_fitness_predictions']
                 else:
-                    unsupervised_fitness_predictions = None
+                    zero_shot_fitness_predictions = None
                 
                 if self.model.model_type=="ProteinNPT":
                     output = self.model(
                         tokens=processed_batch['masked_tokens'],
                         targets=processed_batch['masked_targets'],
-                        unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                        zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                         sequence_embeddings=processed_batch['sequence_embeddings'],
-                        need_head_weights=need_head_weights,
-                        location_save_attention=location_save_attention
+                        need_head_weights=need_head_weights
                     )
                     batch_loss, batch_reconstruction_loss, batch_target_prediction_loss_dict = self.model.protein_npt_loss(
                         token_predictions_logits=output['logits_protein_sequence'], 
@@ -470,7 +465,7 @@ class Trainer():
                 else:
                     output = self.model(
                         tokens=processed_batch['input_tokens'],
-                        unsupervised_fitness_predictions=unsupervised_fitness_predictions,
+                        zero_shot_fitness_predictions=zero_shot_fitness_predictions,
                         sequence_embeddings=processed_batch['sequence_embeddings']
                     )
                     batch_loss, batch_target_prediction_loss_dict = self.model.prediction_loss(
@@ -500,7 +495,7 @@ class Trainer():
 
             output_scores = pd.DataFrame.from_dict(output_scores)
             output_scores_numeric_cols = [col_name for col_name in output_scores.columns if col_name not in ['mutant','mutated_sequence']]
-            output_scores = output_scores.groupby(['mutant'])[output_scores_numeric_cols].mean().reset_index() #Merge on mutant instead of mutated_seq in case of mirroring. We are losing mutated_sequence here.
+            output_scores = output_scores.groupby(['mutant'])[output_scores_numeric_cols].mean().reset_index() 
             mutated_seqs_dict = {}
             mutant_mutated_seqs = list(zip(*test_data['mutant_mutated_seq_pairs']))
             mutated_seqs_dict['mutant'] = mutant_mutated_seqs[0]

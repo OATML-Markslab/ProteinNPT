@@ -6,12 +6,12 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-from transformers import ConvBertConfig, ConvBertLayer, PreTrainedTokenizerFast
+from transformers import ConvBertConfig, ConvBertLayer
 
+import utils
 from utils.esm.modules import ESM1bLayerNorm
-from utils.esm import pretrained
 from utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
-from utils import model_utils, tranception
+from utils.tranception.model_pytorch import get_tranception_tokenizer
 
 class AugmentedPropertyPredictor(nn.Module):
     def __init__(self, args, alphabet):
@@ -30,10 +30,9 @@ class AugmentedPropertyPredictor(nn.Module):
         self.target_names = self.args.target_config.keys() 
         self.MSA_sample_sequences = None 
         self.device = None
-        self.embeddings_dict = None
         self.model_type = args.model_type 
         if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
-            model, _ = pretrained.load_model_and_alphabet(args.embedding_model_location)
+            model, _ = utils.esm.pretrained.load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             if self.args.aa_embeddings == "MSA_Transformer": self.args.seq_len = self.args.MSA_seq_len #If MSA does not cover full sequence length, we adjust seq_len param to be MSA_len (sequences truncated as needed in preprocessing)
         elif self.args.aa_embeddings == "Linear_embedding":
@@ -47,20 +46,12 @@ class AugmentedPropertyPredictor(nn.Module):
             self.args.target_prediction_head == "One_hot_encoding"
         elif self.args.aa_embeddings == "Tranception":
             self.aa_embedding_dim = 1280
-            dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            tokenizer = PreTrainedTokenizerFast(tokenizer_file=dir_path + os.sep + "utils/tranception/utils/tokenizers/Basic_tokenizer",
-                                                        unk_token="[UNK]",
-                                                        sep_token="[SEP]",
-                                                        pad_token="[PAD]",
-                                                        cls_token="[CLS]",
-                                                        mask_token="[MASK]"
-                                                    )
             config = json.load(open(args.embedding_model_location+os.sep+'config.json'))
-            config = tranception.config.TranceptionConfig(**config)
-            config.tokenizer = tokenizer
+            config = utils.tranception.config.TranceptionConfig(**config)
+            config.tokenizer = get_tranception_tokenizer()
             config.inference_time_retrieval_type = None
             config.retrieval_aggregation_mode = None
-            self.aa_embedding = tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
+            self.aa_embedding = utils.tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
             self.config = config
         else:
             print("Error: Specified AA embedding invalid")
@@ -121,15 +112,15 @@ class AugmentedPropertyPredictor(nn.Module):
             print("Error: Specified layer_pre_head invalid")
             sys.exit(0)
 
-        if self.args.unsupervised_fitness_pred_config: 
-            self.unsupervised_fitness_prediction_weight = nn.ModuleDict(
+        if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+            self.zero_shot_fitness_prediction_weight = nn.ModuleDict(
                 { 
                     target_name: nn.Linear(1, self.args.target_config[target_name]["dim"], bias=False)
                     for target_name in self.target_names
                 }
             )
             for target_name in self.target_names:
-                torch.nn.init.constant_(self.unsupervised_fitness_prediction_weight[target_name].weight,1.0)
+                torch.nn.init.constant_(self.zero_shot_fitness_prediction_weight[target_name].weight,1.0)
 
         self.target_pred_head = nn.ModuleDict(
                 { 
@@ -143,7 +134,7 @@ class AugmentedPropertyPredictor(nn.Module):
             self.device = next(self.parameters()).device
         print("Model device: {}".format(self.device))
 
-    def forward(self, tokens, unsupervised_fitness_predictions=None, sequence_embeddings=None, repr_layers=[]):
+    def forward(self, tokens, zero_shot_fitness_predictions=None, sequence_embeddings=None, repr_layers=[]):
         if self.args.aa_embeddings == "MSA_Transformer" and self.args.sequence_embeddings_location is None:
             assert tokens.ndim == 3, "Finding dimension of tokens to be: {}".format(tokens.ndim)
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = tokens.size()
@@ -207,14 +198,14 @@ class AugmentedPropertyPredictor(nn.Module):
         target_predictions = {}
         for target_name in self.target_names:
             target_predictions[target_name] = self.target_pred_head[target_name](x).view(-1)
-            if self.args.unsupervised_fitness_pred_config:
-                target_predictions[target_name] += self.unsupervised_fitness_prediction_weight[target_name](unsupervised_fitness_predictions).squeeze()
+            if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).squeeze()
 
         result = {"target_predictions": target_predictions, "representations": hidden_representations}
         
         return result
     
-    def forward_with_uncertainty(self, tokens, unsupervised_fitness_predictions=None, sequence_embeddings=None, num_MC_dropout_samples=10):
+    def forward_with_uncertainty(self, tokens, zero_shot_fitness_predictions=None, sequence_embeddings=None, num_MC_dropout_samples=10):
         """
         Performs MC dropout to compute predictions and the corresponding uncertainties.
         Assumes 1D predictions (eg., prediction of continuous output).
@@ -226,7 +217,7 @@ class AugmentedPropertyPredictor(nn.Module):
         with torch.no_grad(): 
             predictions_dict = defaultdict(list)
             for _ in range(num_MC_dropout_samples):
-                target_predictions_sample = self.forward(tokens, unsupervised_fitness_predictions=unsupervised_fitness_predictions, sequence_embeddings=sequence_embeddings)["target_predictions"]
+                target_predictions_sample = self.forward(tokens, zero_shot_fitness_predictions=zero_shot_fitness_predictions, sequence_embeddings=sequence_embeddings)["target_predictions"]
                 for target_name in self.target_names:
                     predictions_dict[target_name].append(target_predictions_sample[target_name])
             results_with_uncertainty={}
@@ -270,9 +261,9 @@ class AugmentedPropertyPredictor(nn.Module):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         Adapted from Huggingface Transformers library.
         """
-        all_parameters = model_utils.get_parameter_names(self, [nn.LayerNorm])
-        decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'unsupervised_fitness_prediction_weight' not in name)]
-        psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "unsupervised_fitness_prediction_weight" in name))]
+        all_parameters = utils.model_utils.get_parameter_names(self, [nn.LayerNorm])
+        decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'zero_shot_fitness_prediction_weight' not in name)]
+        psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "zero_shot_fitness_prediction_weight" in name))]
         optimizer_grouped_parameters = [
                 {
                     "params": [p for n, p in self.named_parameters() if n in decay_parameters],

@@ -9,7 +9,7 @@ from torch import nn
 from torch.nn import CrossEntropyLoss, NLLLoss
 import torch.nn.functional as F
 from transformers import GPT2PreTrainedModel
-
+from transformers import PreTrainedTokenizerFast
 from transformers.modeling_utils import (
     Conv1D,
     PreTrainedModel,
@@ -32,6 +32,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
 
+import utils
 from .activations import tranception_ACT2FN
 from .config import TranceptionConfig
 from .outputs import (
@@ -888,8 +889,6 @@ class TranceptionLMHeadModel(GPT2PreTrainedModel):
         if ('mutated_sequence' not in df) and (not indel_mode): df['mutated_sequence'] = df['mutant'].apply(lambda x: scoring_utils.get_mutated_sequence(target_seq, x))
         assert ('mutated_sequence' in df), "DMS file to score does not have mutated_sequence column"
         if 'mutant' not in df: df['mutant'] = df['mutated_sequence'] #if mutant not in DMS file we default to mutated_sequence
-        #if 'DMS_score' in df: del df['DMS_score'] 
-        #if 'DMS_score_bin' in df: del df['DMS_score_bin'] 
         df = df[['mutated_sequence','mutant']]
         if target_seq is not None:
             df_left_to_right_slices = scoring_utils.get_sequence_slices(df, target_seq=target_seq, model_context_len = self.config.n_ctx - 2, indel_mode=indel_mode, scoring_window=self.config.scoring_window)
@@ -926,3 +925,16 @@ class TranceptionLMHeadModel(GPT2PreTrainedModel):
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='Z', char_replacements='EQ')
         return self.config.tokenizer(list(protein_sequence[sequence_name]), add_special_tokens=True, truncation=True, padding=True, max_length=self.config.n_ctx)
 
+def get_tranception_tokenizer():
+    #Tranception Alphabet: "vocab":{"[UNK]":0,"[CLS]":1,"[SEP]":2,"[PAD]":3,"[MASK]":4,"A":5,"C":6,"D":7,"E":8,"F":9,"G":10,"H":11,"I":12,"K":13,"L":14,"M":15,"N":16,"P":17,"Q":18,"R":19,"S":20,"T":21,"V":22,"W":23,"Y":24}
+    dir_path = os.path.dirname(os.path.abspath(__file__))
+    tokenizer = PreTrainedTokenizerFast(tokenizer_file=dir_path + os.sep + "utils/tokenizers/Basic_tokenizer", unk_token="[UNK]", sep_token="[SEP]", pad_token="[PAD]", cls_token="[CLS]",mask_token="[MASK]")
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    tokenizer.tok_to_idx = tokenizer.vocab
+    tokenizer.padding_idx = tokenizer.tok_to_idx["[PAD]"]
+    tokenizer.mask_idx = tokenizer.tok_to_idx["[MASK]"]
+    tokenizer.cls_idx = tokenizer.tok_to_idx["[CLS]"]
+    tokenizer.eos_idx = tokenizer.tok_to_idx["[SEP]"]
+    tokenizer.prepend_bos = True
+    tokenizer.append_eos = True
+    return tokenizer

@@ -1,11 +1,11 @@
 {
     "model_type": "ProteinNPT",
-    "target_config_location": "./utils/target_configs/fitness_unsupervised.json",
     "model_name_suffix": "PNPT_MSAT_final",
     "aa_embeddings": "MSA_Transformer",
     "embedding_model_location": "ESM/MSA_Transformer/esm_msa1b_t12_100M_UR50S.pt",
-    "MSA_data_folder": "ProteinGym/MSA_files",
-    "MSA_weight_data_folder": "ProteinGym/MSA_weights/substitutions_MSAs",
+    "augmentation": "zero_shot_fitness_predictions_auxiliary_labels",
+    "MSA_data_folder": "data/MSA/MSA_files",
+    "MSA_weight_data_folder": "data/MSA/MSA_weights",
     "path_to_hhfilter": "hhfilter",
     "max_positions": 1024,
     "target_prediction_head": "Target_embeddings_only",
@@ -14,7 +14,6 @@
     "ffn_embed_dim": 400,
     "num_protein_npt_layers": 5,
     "eval_training_sequences_sampling_method": "random",
-    "PNPT_ensemble_test_num_seeds": -1,
     "attention_dropout": 0.1,
     "activation_dropout": 0.1,
     "target_prediction_model": "CNN",
@@ -30,5 +29,6 @@
     "training_num_assay_sequences_per_batch_per_gpu": 425,
     "eval_num_sequences_to_score_per_batch_per_gpu": 15,
     "eval_num_training_sequences_per_batch_per_gpu": 1000,
+    "num_MSA_sequences_per_training_instance": 384,
     "seed": 2023
 }

@@ -12,9 +12,8 @@ from utils.esm.modules import (
     RobertaLMHead,
     ESM1bLayerNorm,
 )
-from utils.esm import pretrained
+import utils
 from utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
-from utils import model_utils, tranception
 
 class ProteinNPTModel(nn.Module):
     def __init__(self, args, alphabet):
@@ -30,32 +29,31 @@ class ProteinNPTModel(nn.Module):
         self.append_eos = alphabet.append_eos
         self.target_names_input = self.args.target_config.keys()
         self.target_names = [x for x in self.args.target_config.keys() if self.args.target_config[x]["in_NPT_loss"]]
-        self.num_targets_input = len(self.target_names_input) #Includes all targets, incl. unsupervised fitness predictions
+        self.num_targets_input = len(self.target_names_input) #Includes all targets, incl. zero-shot fitness predictions
         self.num_targets = len(self.target_names) #Number of actual targets we want to predict
-        print("Target input names: {}".format(self.target_names_input))
-        print("Num target loss names: {}".format(self.num_targets))
         self.MSA_sample_sequences = None
         self.training_sample_sequences_indices = None
         self.device = None
-        self.embeddings_dict = None
         self.optimizer = None
         self.model_type = args.model_type
-        self.deactivate_col_attention = args.PNPT_deactivate_col_attention
-        self.tranception_attention = args.PNPT_tranception_attention
+        self.PNPT_ensemble_test_num_seeds = -1
+        self.PNPT_no_reconstruction_error = False
+        self.deactivate_col_attention = False
+        self.tranception_attention = False
         
         assert self.args.embed_dim % self.args.attention_heads ==0, "Embedding size {} needs to be a multiple of number of heads {}".format(self.args.embed_dim, self.args.attention_heads)
         if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
-            model, _ = pretrained.load_model_and_alphabet(args.embedding_model_location)
+            model, _ = utils.esm.pretrained.load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             self.aa_embedding_dim = self.aa_embedding.embed_tokens.weight.shape[-1]
         elif self.args.aa_embeddings == "Tranception":
             self.aa_embedding_dim = 1280
             config = json.load(open(args.embedding_model_location+os.sep+'config.json'))
-            config = tranception.config.TranceptionConfig(**config)
+            config = utils.tranception.config.TranceptionConfig(**config)
             config.tokenizer = self.alphabet
             config.inference_time_retrieval_type = None
             config.retrieval_aggregation_mode = None
-            self.aa_embedding = tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
+            self.aa_embedding = utils.tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
         elif self.args.aa_embeddings == "Linear_embedding":
             self.aa_embedding = nn.Embedding(
                                     self.alphabet_size, self.args.embed_dim, padding_idx=self.padding_idx
@@ -167,15 +165,15 @@ class ProteinNPTModel(nn.Module):
         elif self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled":
             target_pred_input_dim = target_pred_input_dim * (1 + self.num_targets_input)
 
-        if self.args.unsupervised_fitness_pred_config: 
-            self.unsupervised_fitness_prediction_weight = nn.ModuleDict(
+        if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+            self.zero_shot_fitness_prediction_weight = nn.ModuleDict(
                 { 
                     target_name: nn.Linear(1, self.args.target_config[target_name]["dim"], bias=False)
                     for target_name in self.target_names
                 }
             )
             for target_name in self.target_names:
-                torch.nn.init.constant_(self.unsupervised_fitness_prediction_weight[target_name].weight,1e-4)
+                torch.nn.init.constant_(self.zero_shot_fitness_prediction_weight[target_name].weight,1e-4)
 
         self.target_pred_head = nn.ModuleDict(
                 { 
@@ -189,7 +187,7 @@ class ProteinNPTModel(nn.Module):
             self.device = next(self.parameters()).device
         print("Model device: {}".format(self.device))
         
-    def forward(self, tokens, targets=None, unsupervised_fitness_predictions=None, sequence_embeddings=None, repr_layers=[], need_head_weights=False):
+    def forward(self, tokens, targets=None, zero_shot_fitness_predictions=None, sequence_embeddings=None, repr_layers=[], need_head_weights=False):
         padding_mask = tokens.eq(self.padding_idx) 
         if not padding_mask.any(): padding_mask = None
         
@@ -309,8 +307,8 @@ class ProteinNPTModel(nn.Module):
             else:
                 if self.args.target_prediction_model == "MLP": y[:,target_index,:] = self.layer_pre_head[target_name](y[:,target_index,:])
                 target_predictions[target_name] = self.target_pred_head[target_name](y[:,target_index,:]).view(-1) #input the embedding with the relevant target_index
-            if self.args.unsupervised_fitness_pred_config:
-                target_predictions[target_name] += self.unsupervised_fitness_prediction_weight[target_name](unsupervised_fitness_predictions).squeeze()
+            if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
+                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).squeeze()
             
         result = {"logits_protein_sequence": logits_protein_sequence, "target_predictions": target_predictions, "representations": hidden_representations}
         
@@ -322,7 +320,7 @@ class ProteinNPTModel(nn.Module):
 
         return result
 
-    def forward_with_uncertainty(self, tokens, targets, unsupervised_fitness_predictions=None, sequence_embeddings=None, num_MC_dropout_samples=10, number_of_mutated_seqs_to_score=None):
+    def forward_with_uncertainty(self, tokens, targets, zero_shot_fitness_predictions=None, sequence_embeddings=None, num_MC_dropout_samples=10, number_of_mutated_seqs_to_score=None):
         """
         Performs MC dropout to compute predictions and the corresponding uncertainties.
         Assumes 1D predictions (eg., prediction of continuous output)
@@ -334,7 +332,7 @@ class ProteinNPTModel(nn.Module):
         with torch.no_grad():
             predictions_dict = defaultdict(list)
             for _ in range(num_MC_dropout_samples):
-                target_predictions_sample = self.forward(tokens, targets, unsupervised_fitness_predictions=unsupervised_fitness_predictions, sequence_embeddings=sequence_embeddings)["target_predictions"]
+                target_predictions_sample = self.forward(tokens, targets, zero_shot_fitness_predictions=zero_shot_fitness_predictions, sequence_embeddings=sequence_embeddings)["target_predictions"]
                 for target_name in self.target_names:
                     predictions_dict[target_name].append(target_predictions_sample[target_name])
             results_with_uncertainty={}
@@ -395,9 +393,9 @@ class ProteinNPTModel(nn.Module):
         Adapted from Huggingface Transformers library.
         """
         if self.optimizer is None:
-            all_parameters = model_utils.get_parameter_names(self, [nn.LayerNorm])
-            decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'unsupervised_fitness_prediction_weight' not in name)]
-            psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "unsupervised_fitness_prediction_weight" in name))]
+            all_parameters = utils.model_utils.get_parameter_names(self, [nn.LayerNorm])
+            decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'zero_shot_fitness_prediction_weight' not in name)]
+            psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "zero_shot_fitness_prediction_weight" in name))]
             optimizer_grouped_parameters = [
                 {
                     "params": [p for n, p in self.named_parameters() if n in decay_parameters],

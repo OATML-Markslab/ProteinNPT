@@ -1,13 +1,12 @@
 import sys
 import numpy as np
 import torch
-import pickle
+import h5py
 from utils.data_utils import mask_targets, mask_protein_sequences, slice_sequences, get_indices_retrieved_embeddings
 from utils.msa_utils import weighted_sample_MSA
 
 def PNPT_sample_training_points_inference(training_sequences, sequences_sampling_method, num_sampled_points):
     replace = True if "with_replacement" in sequences_sampling_method else False
-    print("Sampling PNPT training points with replacement? {}".format(replace))
     num_sequences_training_data = len(training_sequences['mutant_mutated_seq_pairs'])
     if (num_sequences_training_data <= num_sampled_points) and (not replace): return range(num_sequences_training_data)
     if "random" in sequences_sampling_method:
@@ -74,13 +73,12 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         batch_masked_targets[target_name] = masked_targets # masked_targets is of shape (number_of_mutated_seqs_to_score, 2) for continuous targets
         batch_target_labels[target_name] = target_labels # batch_target_labels is of shape (number_of_mutated_seqs_to_score,) for continuous targets
 
-    if args.unsupervised_fitness_pred_config: batch_target_labels['unsupervised_fitness_predictions'] = batch['unsupervised_fitness_predictions'].to(device) # process fitness pred as a target to make things easier
+    if args.augmentation=="zero_shot_fitness_predictions_covariate": batch_target_labels['zero_shot_fitness_predictions'] = batch['zero_shot_fitness_predictions'].to(device) # process fitness pred as a target to make things easier
     if (training_sequences is not None):
         num_sequences_training_data = len(training_sequences['mutant_mutated_seq_pairs'])
         if model.training_sample_sequences_indices is None:
             selected_indices_dict = {}
-            num_ensemble_seeds = args.PNPT_ensemble_test_num_seeds if args.PNPT_ensemble_test_num_seeds > 0 else 1
-            print("Sampling a collection of {} set(s) of training points for PNPT".format(num_ensemble_seeds))
+            num_ensemble_seeds = model.PNPT_ensemble_test_num_seeds if model.PNPT_ensemble_test_num_seeds > 0 else 1
             for ensemble_seed in range(num_ensemble_seeds):
                 selected_indices_dict[ensemble_seed] = PNPT_sample_training_points_inference(
                     training_sequences=training_sequences, 
@@ -91,10 +89,10 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         selected_indices = model.training_sample_sequences_indices[selected_indices_seed]
         num_selected_training_sequences = len(np.array(training_sequences['mutant_mutated_seq_pairs'])[selected_indices])
         batch['mutant_mutated_seq_pairs'] += list(np.array(training_sequences['mutant_mutated_seq_pairs'])[selected_indices])
-        if args.unsupervised_fitness_pred_config: 
-            batch_target_labels['unsupervised_fitness_predictions'] = list(batch_target_labels['unsupervised_fitness_predictions'].cpu().numpy())
-            batch_target_labels['unsupervised_fitness_predictions'] += list(np.array(training_sequences['unsupervised_fitness_predictions'])[selected_indices])
-            batch_target_labels['unsupervised_fitness_predictions'] = torch.tensor(batch_target_labels['unsupervised_fitness_predictions']).float().to(device)
+        if args.augmentation=="zero_shot_fitness_predictions_covariate":
+            batch_target_labels['zero_shot_fitness_predictions'] = list(batch_target_labels['zero_shot_fitness_predictions'].cpu().numpy())
+            batch_target_labels['zero_shot_fitness_predictions'] += list(np.array(training_sequences['zero_shot_fitness_predictions'])[selected_indices])
+            batch_target_labels['zero_shot_fitness_predictions'] = torch.tensor(batch_target_labels['zero_shot_fitness_predictions']).float().to(device)
         for target_name in target_names:
             # training_sequences[target_name] expected of size (len_training_seq,2). No entry is actually masked here since we want to use all available information to predict as accurately as possible
             masked_training_targets, training_target_labels = mask_targets(
@@ -120,16 +118,10 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
     # Embedding loading needs to happen here to ensure we also load training sequences at eval time
     if args.sequence_embeddings_location is not None:
         try:
-            # Load the embeddings dictionary from disk
-            if model.embeddings_dict is None:
-                with open(args.sequence_embeddings_location, 'rb') as f:
-                    embeddings_dict = pickle.load(f)
-                model.embeddings_dict = embeddings_dict
-            else:
-                embeddings_dict = model.embeddings_dict
-            indices_retrived_embeddings = get_indices_retrieved_embeddings(batch,embeddings_dict)
-            assert len(indices_retrived_embeddings)==len(batch['mutant_mutated_seq_pairs']) , "At least one embedding was missing"
-            sequence_embeddings = embeddings_dict['embeddings'][indices_retrived_embeddings].float()
+            indices_retrieved_embeddings = get_indices_retrieved_embeddings(batch,args.sequence_embeddings_location)
+            assert len(indices_retrieved_embeddings)==len(batch['mutant_mutated_seq_pairs']) , "At least one embedding was missing"
+            with h5py.File(args.sequence_embeddings_location, 'r') as h5f:
+                sequence_embeddings = torch.tensor(np.array([h5f['embeddings'][i] for i in indices_retrieved_embeddings])).float()
         except:
             print("Error loading main sequence embeddings")
             sys.exit(0)
@@ -144,9 +136,9 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         # Recompute sequence length (has potentially been chopped off above)
         raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1])
 
-    #Sample MSA sequences - append to end of batch tokens and targets
+    # Sample MSA sequences - append to end of batch tokens and targets
     # We use these only if aa_embedding is MSA_Transformer. Otherwise we dont use these seqs.
-    if args.aa_embeddings == "MSA_Transformer" and args.sequence_embeddings_location is None and args.num_MSA_sequences_per_training_instance > 0: #Last condition is shortcut in case we already have the mebeddings
+    if args.aa_embeddings == "MSA_Transformer" and args.sequence_embeddings_location is None and args.num_MSA_sequences_per_training_instance > 0:
         assert MSA_weights is not None, "Trying to add MSA_sequences to scoring batch but no weights are provided"
         if model.MSA_sample_sequences is None:
             model.MSA_sample_sequences = weighted_sample_MSA(
@@ -204,7 +196,7 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         proba_random_mutation = 0.1, 
         proba_unchanged = 0.1
     )
-    if (args.sequence_embeddings_location is not None) and (not args.PNPT_no_reconstruction_error): 
+    if args.sequence_embeddings_location is not None: 
         sequence_embeddings[masked_indices] = 0.0
 
     batch_masked_tokens = batch_masked_tokens.to(device)

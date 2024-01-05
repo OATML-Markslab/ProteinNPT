@@ -1,9 +1,8 @@
 {
     "model_type": "MSA_Transformer_pred",
-    "target_config_location":"./utils/target_configs/fitness.json",
-    "unsupervised_fitness_pred_config_location":"./utils/input_configs/unsupervised_fitness_predictions.json",
     "model_name_suffix": "OHE_MSAT_final",
     "aa_embeddings": "One_hot_encoding",
+    "augmentation": "zero_shot_fitness_predictions_covariate",
     "target_prediction_head": "One_hot_encoding",
     "target_prediction_model": "linear",
     "weight_decay": 5e-3,
