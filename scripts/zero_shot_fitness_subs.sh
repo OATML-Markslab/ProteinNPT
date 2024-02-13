@@ -21,7 +21,6 @@ python zero_shot_fitness_esm.py \
     --dms-input ${CV_subs_singles_data_folder} \
     --dms-output ${output_folder} \
     --scoring-strategy ${scoring_strategy} \
-    --scoring-window ${scoring_window} \
     --msa-path ${DMS_MSA_data_folder} \
     --msa-weights-folder ${DMS_MSA_weights_folder} \
     --seeds ${random_seeds}
