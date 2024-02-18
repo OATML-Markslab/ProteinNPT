@@ -3,8 +3,8 @@ from collections import defaultdict
 import numpy as np
 import h5py
 import torch
-from utils.data_utils import slice_sequences, get_indices_retrieved_embeddings
-from utils.msa_utils import weighted_sample_MSA
+from proteinnpt.utils.data_utils import slice_sequences, get_indices_retrieved_embeddings
+from proteinnpt.utils.msa_utils import weighted_sample_MSA
 
 def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, eval_mode = True, indel_mode=False, start_idx=1):
     """

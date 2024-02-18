@@ -4,10 +4,9 @@ import json
 import pandas as pd
 
 import torch
-from transformers import PreTrainedTokenizerFast
 
-import utils
-from utils.tranception.model_pytorch import get_tranception_tokenizer
+from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer,TranceptionLMHeadModel
+from proteinnpt.utils.tranception.config import TranceptionConfig
 
 def main():
     """
@@ -69,7 +68,7 @@ def main():
             MSA_end = args.MSA_end
 
     config = json.load(open(args.checkpoint+os.sep+'config.json'))
-    config = utils.tranception.config.TranceptionConfig(**config)
+    config = TranceptionConfig(**config)
     config.attention_mode="tranception"
     config.position_embedding="grouped_alibi"
     config.tokenizer = tokenizer
@@ -89,7 +88,7 @@ def main():
         config.retrieval_aggregation_mode = None
         
     if args.model_framework=="pytorch":
-        model = utils.tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.checkpoint,config=config)
+        model = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.checkpoint,config=config)
         if torch.cuda.is_available():
             model.cuda()
     model.eval()

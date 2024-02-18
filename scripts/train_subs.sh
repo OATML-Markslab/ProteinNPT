@@ -5,7 +5,7 @@ export model_config_location=$ProteinNPT_config_location # [ProteinNPT_config_lo
 export sequence_embeddings_folder=$MSAT_embeddings_folder # [MSAT_embeddings_folder|Tranception_embeddings_folder|ESM1v_embeddings_folder]
 
 export fold_variable_name='fold_random_5' #[fold_random_5 | fold_contiguous_5 | fold_modulo_5]
-export assay_index=0 #Replace with index of desired DMS assay in the ProteinGym reference file (`utils/proteingym`)
+export assay_index=1 #Replace with index of desired DMS assay in the ProteinGym reference file (`utils/proteingym`)
 export model_name_suffix='All_singles_final' #Give a name to the model
 
 python train.py \

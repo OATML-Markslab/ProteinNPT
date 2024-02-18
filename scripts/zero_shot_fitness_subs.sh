@@ -74,7 +74,7 @@ python zero_shot_fitness_tranception.py \
 ###############################Merge scores##############################
 #########################################################################
 
-python ../utils/merge_zero_shot.py \
+python ../proteinnpt/utils/merge_zero_shot.py \
                 --DMS_reference_file_path ${DMS_reference_file_path_subs} \
                 --DMS_mutants_folder ${CV_subs_singles_data_folder} \
                 --zero_shot_scores_folder ${zero_shot_fitness_predictions_substitutions} \

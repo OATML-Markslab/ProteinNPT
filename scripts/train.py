@@ -8,14 +8,13 @@ import wandb
 import torch
 from collections import defaultdict
 
-import proteinnpt,baselines,utils
-from proteinnpt.model import ProteinNPTModel
-from baselines.model import AugmentedPropertyPredictor
-from utils.esm.data import Alphabet
-from utils.tranception.model_pytorch import get_tranception_tokenizer
-from utils.data_utils import get_train_val_test_data, standardize, pnpt_count_non_nan, pnpt_spearmanr
-from utils.msa_utils import process_MSA
-from utils.model_utils import Trainer
+from proteinnpt.proteinnpt.model import ProteinNPTModel
+from proteinnpt.baselines.model import AugmentedPropertyPredictor
+from proteinnpt.utils.esm.data import Alphabet
+from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer
+from proteinnpt.utils.data_utils import get_train_val_test_data, standardize, pnpt_count_non_nan, pnpt_spearmanr
+from proteinnpt.utils.msa_utils import process_MSA
+from proteinnpt.utils.model_utils import Trainer
 
 def setup_config_and_paths(args):
     # All parameters that are not defined by end user are fetched from the config file
@@ -214,8 +213,8 @@ def main(args):
     train_data, val_data, test_data, target_processing = get_train_val_test_data(args = args, assay_file_names = assay_file_names)
     MSA_sequences, MSA_weights = process_MSA(args, MSA_filename, MSA_weights_filename) if args.aa_embeddings=="MSA_Transformer" else (None, None)
     
-    if args.use_wandb: 
-        combined_dict = {**vars(args), "parameter_count": sum(p.numel() for p in model.parameters()), "world_size": world_size, "assay_id": assay_id, "UniProt_id": UniProt_id}
+    if args.use_wandb:
+        combined_dict = {**vars(args), "parameter_count": sum(p.numel() for p in model.parameters()), "assay_id": assay_id, "UniProt_id": UniProt_id}
         wandb.init(project=os.getenv("WANDB_PROJECT"), config=combined_dict, name=model_name, dir=args.wandb_location, save_code=True)
     
     # Define trainer

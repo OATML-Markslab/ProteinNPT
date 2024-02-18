@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 import math
 import os
 import pandas as pd
@@ -7,34 +6,18 @@ import pandas as pd
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, NLLLoss
-import torch.nn.functional as F
+
 from transformers import GPT2PreTrainedModel
 from transformers import PreTrainedTokenizerFast
 from transformers.modeling_utils import (
     Conv1D,
-    PreTrainedModel,
-    SequenceSummary,
     find_pruneable_heads_and_indices,
     prune_conv1d_layer,
 )
-from transformers.file_utils import (
-    ModelOutput,
-    add_code_sample_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    replace_return_docstrings
-)
-from transformers.modeling_outputs import (
-    BaseModelOutputWithPastAndCrossAttentions,
-    CausalLMOutputWithCrossAttentions,
-    SequenceClassifierOutputWithPast,
-    TokenClassifierOutput
-)
+from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
 from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
 
-import utils
 from .activations import tranception_ACT2FN
-from .config import TranceptionConfig
 from .outputs import (
     TranceptionCausalLMOutputWithCrossAttentions,
 )

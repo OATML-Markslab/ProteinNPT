@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from tranception.utils import scoring_utils
+from . import scoring_utils
 
 def DMS_file_cleanup(DMS_filename, target_seq, start_idx=1, end_idx=None, DMS_mutant_column='mutant', DMS_phenotype_name='score', DMS_directionality=1, AA_vocab = "ACDEFGHIKLMNPQRSTVWY"):
     """

@@ -7,7 +7,7 @@ import tempfile
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-from Bio.Align.Applications import ClustalOmegaCommandline
+import subprocess
 
 class MSA_processing:
     def __init__(self,
@@ -99,7 +99,7 @@ class MSA_processing:
             # Overwrite seq_name_to_sequence with clean version
             self.seq_name_to_sequence = defaultdict(str)
             for seq_idx in range(len(msa_df['sequence'])):
-                self.seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence[seq_idx]
+                self.seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence.iloc[seq_idx]
 
         self.focus_seq = self.seq_name_to_sequence[self.focus_seq_name]
         self.focus_cols = [ix for ix, s in enumerate(self.focus_seq) if s == s.upper() and s!='-'] 
@@ -267,15 +267,18 @@ def align_new_sequences_to_msa(MSA_sequences, new_sequences, new_mutants, clusta
             tmp_file.write(f">{record.id}\n{record.seq}\n")
     # Use ClustalOmega to realign everything
     output_filename = tempfile.NamedTemporaryFile(delete=False).name
-    clustalomega_cline = ClustalOmegaCommandline(
-        cmd=clustalomega_path,
-        infile=tmp_filename,
-        outfile=output_filename, 
-        verbose=True, 
-        auto=True, 
-        force=True
-    )
-    stdout, stderr = clustalomega_cline()
+    command = [
+        clustalomega_path,
+        "--in", tmp_filename,
+        "--out", output_filename,
+        "--verbose",
+        "--auto",
+        "--force"
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("Error in running ClustalOmega:")
+        print(result.stderr)
     os.remove(tmp_filename)
     # Parse the aligned sequences from the output file and convert to the desired format
     aligned_records = list(SeqIO.parse(output_filename, "fasta"))

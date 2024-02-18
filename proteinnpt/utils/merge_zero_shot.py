@@ -1,6 +1,5 @@
 import os
 import argparse
-import json
 import pandas as pd
 
 def main(args):

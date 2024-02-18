@@ -13,12 +13,14 @@ import tqdm
 from torch.utils.data.sampler import SequentialSampler
 from transformers import DataCollatorForLanguageModeling
 
-from utils import tranception
-from utils.tranception.model_pytorch import get_tranception_tokenizer
-from utils.esm.data import Alphabet
-from utils.esm import pretrained
-from utils.msa_utils import weighted_sample_MSA, process_MSA, align_new_sequences_to_msa
-from utils.data_utils import collate_fn_protein_npt, slice_sequences
+from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer
+from proteinnpt.utils.tranception.config import TranceptionConfig
+from proteinnpt.utils.tranception.model_pytorch import TranceptionLMHeadModel
+from proteinnpt.utils.tranception.utils.scoring_utils import get_sequence_slices
+from proteinnpt.utils.esm.data import Alphabet
+from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
+from proteinnpt.utils.msa_utils import weighted_sample_MSA, process_MSA, align_new_sequences_to_msa
+from proteinnpt.utils.data_utils import collate_fn_protein_npt, slice_sequences
 
 def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, num_MSA_sequences=None, eval_mode = True, start_idx=1, indel_mode=False, fast_MSA_mode=False, fast_MSA_aligned_sequences=None, fast_MSA_short_names_mapping=None, clustalomega_path=None):
     if args.model_type in ["MSA_Transformer","ESM1v"]:
@@ -133,17 +135,17 @@ if __name__ == "__main__":
     if args.model_type in ["MSA_Transformer","ESM1v"]:
         alphabet = Alphabet.from_architecture("msa_transformer")
         alphabet_size = len(alphabet)
-        model, _ = pretrained.load_model_and_alphabet(args.model_location)
+        model, _ = load_model_and_alphabet(args.model_location)
         model.MSA_sample_sequences=None
     elif args.model_type=="Tranception":
         config = json.load(open(args.model_location+os.sep+'config.json'))
-        config = tranception.config.TranceptionConfig(**config)
+        config = TranceptionConfig(**config)
         config.tokenizer = get_tranception_tokenizer()
         config.full_target_seq = target_seq
         config.inference_time_retrieval_type = None
         config.retrieval_aggregation_mode = None
         alphabet = None # Only used in process_embeddings_batch for ESM models
-        model = tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.model_location,config=config)
+        model = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.model_location,config=config)
 
     # Set the model to evaluation mode & move to cuda
     model.eval()
@@ -193,7 +195,7 @@ if __name__ == "__main__":
                         collate_fn=collate_fn_protein_npt
                     )
     elif args.model_type=="Tranception":
-        sliced_df = tranception.utils.scoring_utils.get_sequence_slices(df, 
+        sliced_df = get_sequence_slices(df, 
             target_seq=target_seq, 
             model_context_len = model.config.n_ctx - 2, 
             indel_mode=args.indel_mode, 

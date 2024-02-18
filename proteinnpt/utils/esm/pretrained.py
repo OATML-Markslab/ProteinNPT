@@ -11,7 +11,9 @@ from pathlib import Path
 
 import torch
 
-from utils import esm
+from .data import Alphabet
+from .model.esm1 import ProteinBertModel
+from .model.msa_transformer import MSATransformer
 from .model.esm2 import ESM2
 
 
@@ -83,9 +85,8 @@ def has_emb_layer_norm_before(model_state):
 
 
 def _load_model_and_alphabet_core_v1(model_data):
-    from utils import esm  # since esm.inverse_folding is imported below, you actually have to re-import esm here
-
-    alphabet = esm.Alphabet.from_architecture(model_data["args"].arch)
+    
+    alphabet = Alphabet.from_architecture(model_data["args"].arch)
 
     if model_data["args"].arch == "roberta_large":
         # upgrade state dict
@@ -98,7 +99,7 @@ def _load_model_and_alphabet_core_v1(model_data):
         model_state = {prs1(prs2(arg[0])): arg[1] for arg in model_data["model"].items()}
         model_state["embed_tokens.weight"][alphabet.mask_idx].zero_()  # For token drop
         model_args["emb_layer_norm_before"] = has_emb_layer_norm_before(model_state)
-        model_type = esm.ProteinBertModel
+        model_type = ProteinBertModel
 
     elif model_data["args"].arch == "protein_bert_base":
 
@@ -107,7 +108,7 @@ def _load_model_and_alphabet_core_v1(model_data):
         prs = lambda s: "".join(s.split("decoder.")[1:] if "decoder" in s else s)
         model_args = {pra(arg[0]): arg[1] for arg in vars(model_data["args"]).items()}
         model_state = {prs(arg[0]): arg[1] for arg in model_data["model"].items()}
-        model_type = esm.ProteinBertModel
+        model_type = ProteinBertModel
     elif model_data["args"].arch == "msa_transformer":
 
         # upgrade state dict
@@ -123,7 +124,7 @@ def _load_model_and_alphabet_core_v1(model_data):
             emb_dim = model_state["msa_position_embedding"].size(-1)
             model_args["embed_positions_msa_dim"] = emb_dim  # initial release, bug: emb_dim==1
 
-        model_type = esm.MSATransformer
+        model_type = MSATransformer
 
     elif "invariant_gvp" in model_data["args"].arch:
         import esm.inverse_folding
@@ -172,7 +173,7 @@ def _load_model_and_alphabet_core_v2(model_data):
     cfg = model_data["cfg"]["model"]
     state_dict = model_data["model"]
     state_dict = upgrade_state_dict(state_dict)
-    alphabet = esm.data.Alphabet.from_architecture("ESM-1b")
+    alphabet = Alphabet.from_architecture("ESM-1b")
     model = ESM2(
         num_layers=cfg.encoder_layers,
         embed_dim=cfg.encoder_embed_dim,
@@ -211,10 +212,10 @@ def load_model_and_alphabet_core(model_name, model_data, regression_data=None):
                     model.__class__.__name__, "\n\t".join(error_msgs)
                 )
             )
-        if expected_missing - found_keys:
-            warnings.warn(
-                "Regression weights not found, predicting contacts will not produce correct results."
-            )
+        #if expected_missing - found_keys:
+        #    warnings.warn(
+        #        "Regression weights not found, predicting contacts will not produce correct results."
+        #    )
 
     model.load_state_dict(model_state, strict=regression_data is not None)
 

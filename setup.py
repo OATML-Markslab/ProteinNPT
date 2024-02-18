@@ -12,5 +12,5 @@ setup(
     version="1.0",
     license="MIT",
     url="https://github.com/OATML-Markslab/ProteinNPT",    
-    packages=["proteinnpt", "baselines", "utils"]
+    packages=["proteinnpt"]
 )

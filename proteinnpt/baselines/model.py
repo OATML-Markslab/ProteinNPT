@@ -8,10 +8,12 @@ from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import ConvBertConfig, ConvBertLayer
 
-import utils
-from utils.esm.modules import ESM1bLayerNorm
-from utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
-from utils.tranception.model_pytorch import get_tranception_tokenizer
+from proteinnpt.utils.esm.modules import ESM1bLayerNorm
+from proteinnpt.utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
+from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
+from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer,TranceptionLMHeadModel
+from proteinnpt.utils.tranception.config import TranceptionConfig
+from proteinnpt.utils.model_utils import get_parameter_names
 
 class AugmentedPropertyPredictor(nn.Module):
     def __init__(self, args, alphabet):
@@ -32,7 +34,7 @@ class AugmentedPropertyPredictor(nn.Module):
         self.device = None
         self.model_type = args.model_type 
         if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
-            model, _ = utils.esm.pretrained.load_model_and_alphabet(args.embedding_model_location)
+            model, _ = load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             if self.args.aa_embeddings == "MSA_Transformer": self.args.seq_len = self.args.MSA_seq_len #If MSA does not cover full sequence length, we adjust seq_len param to be MSA_len (sequences truncated as needed in preprocessing)
         elif self.args.aa_embeddings == "Linear_embedding":
@@ -47,11 +49,11 @@ class AugmentedPropertyPredictor(nn.Module):
         elif self.args.aa_embeddings == "Tranception":
             self.aa_embedding_dim = 1280
             config = json.load(open(args.embedding_model_location+os.sep+'config.json'))
-            config = utils.tranception.config.TranceptionConfig(**config)
+            config = TranceptionConfig(**config)
             config.tokenizer = get_tranception_tokenizer()
             config.inference_time_retrieval_type = None
             config.retrieval_aggregation_mode = None
-            self.aa_embedding = utils.tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
+            self.aa_embedding = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
             self.config = config
         else:
             print("Error: Specified AA embedding invalid")
@@ -261,7 +263,7 @@ class AugmentedPropertyPredictor(nn.Module):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         Adapted from Huggingface Transformers library.
         """
-        all_parameters = utils.model_utils.get_parameter_names(self, [nn.LayerNorm])
+        all_parameters = get_parameter_names(self, [nn.LayerNorm])
         decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'zero_shot_fitness_prediction_weight' not in name)]
         psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "zero_shot_fitness_prediction_weight" in name))]
         optimizer_grouped_parameters = [

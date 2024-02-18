@@ -4,7 +4,7 @@ from collections import defaultdict
 import random
 import os
 import torch
-from Bio.Align.Applications import ClustalOmegaCommandline
+import subprocess
 
 def filter_msa(msa_data, num_sequences_kept=3):
     """
@@ -162,12 +162,17 @@ def update_retrieved_MSA_log_prior_indel(model, MSA_log_prior, MSA_start, MSA_en
     os.system("echo '"+sequence_text_split_split_join+"' > "+seq_to_align_location)
     
     expanded_MSA_location = model.MSA_folder + os.sep + "Sampled" + os.sep + "Expanded_" + model.MSA_filename.split(os.sep)[-1]
-    clustalw_cline = ClustalOmegaCommandline(cmd=model.config.clustal_omega_location,
-                                            profile1=sampled_MSA_location,
-                                            profile2=seq_to_align_location,
-                                            outfile=expanded_MSA_location,
-                                            force=True)                                        
-    stdout, stderr = clustalw_cline()
+    command = [
+        model.config.clustal_omega_location,
+        "--profile1", sampled_MSA_location,
+        "--profile2", seq_to_align_location,
+        "--outfile", expanded_MSA_location,
+        "--force"
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("Error in running ClustalOmega alignment:")
+        print(result.stderr)
     msa_data = process_msa_data(expanded_MSA_location)
     aligned_seqA, aligned_seqB = msa_data[">SEQ_TO_SCORE"], msa_data[">REFERENCE_SEQUENCE"]
     try:
@@ -280,7 +285,7 @@ class MSA_processing:
             # Overwrite seq_name_to_sequence with clean version
             self.seq_name_to_sequence = defaultdict(str)
             for seq_idx in range(len(msa_df['sequence'])):
-                self.seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence[seq_idx]
+                self.seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence.iloc[seq_idx]
 
         self.focus_seq = self.seq_name_to_sequence[self.focus_seq_name]
         self.focus_cols = [ix for ix, s in enumerate(self.focus_seq) if s == s.upper() and s!='-'] 

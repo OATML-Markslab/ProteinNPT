@@ -11,10 +11,10 @@ import itertools
 from typing import List, Tuple
 import torch
 
-import utils
-from utils.esm import MSATransformer
-from utils.tranception.utils.scoring_utils import get_optimal_window
-from utils.msa_utils import MSA_processing
+from proteinnpt.utils.esm import MSATransformer
+from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
+from proteinnpt.utils.tranception.utils.scoring_utils import get_optimal_window
+from proteinnpt.utils.msa_utils import MSA_processing
 
 def standardization(x):
     """Assumes input is numpy array or pandas series"""
@@ -314,7 +314,7 @@ def main(args):
     # inference for each model
     print("Starting model scoring")
     for model_location in args.model_location:
-        model, alphabet = utils.esm.pretrained.load_model_and_alphabet(model_location)
+        model, alphabet = load_model_and_alphabet(model_location)
         model_location = model_location.split("/")[-1].split(".")[0]
         model.eval()
         if torch.cuda.is_available() and not args.nogpu:

@@ -1,4 +1,3 @@
-import os
 import tqdm
 import re
 import numpy as np
@@ -6,9 +5,9 @@ import pandas as pd
 
 import torch
 from torch.nn import CrossEntropyLoss, NLLLoss
-from torch.utils.data.sampler import Sampler, SequentialSampler
+from torch.utils.data.sampler import SequentialSampler
 
-from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizerFast
+from transformers import DataCollatorForLanguageModeling
 from datasets import Dataset
 
 AA_vocab = "ACDEFGHIKLMNPQRSTVWY"

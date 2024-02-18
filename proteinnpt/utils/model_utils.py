@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-import baselines
-import proteinnpt
 from .data_utils import collate_fn_protein_npt
 
 def get_parameter_names(model, forbidden_layer_types):
@@ -99,7 +97,7 @@ class Trainer():
         """
         Returns the last value of training_step (useful in case of early stopping for isntance)
         """
-        
+        import proteinnpt
         self.model.train()
         self.model.cuda()
         self.model.set_device()
@@ -166,7 +164,7 @@ class Trainer():
                     batch = next(train_iterator)
                 
                 if self.model.model_type=="ProteinNPT":
-                    processed_batch = proteinnpt.data_processing.process_batch(
+                    processed_batch = proteinnpt.proteinnpt.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 
@@ -184,7 +182,7 @@ class Trainer():
                         indel_mode=self.args.indel_mode
                     )
                 else:
-                    processed_batch = baselines.data_processing.process_batch(
+                    processed_batch = proteinnpt.baselines.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 
@@ -373,6 +371,7 @@ class Trainer():
         num_predicted_targets has the number of predicted items
         output_scores is a dict with sequences, predictions and labels
         """
+        import proteinnpt
         self.model.eval()
         self.model.cuda()
         self.model.set_device()
@@ -406,7 +405,7 @@ class Trainer():
                     output_scores['mutated_sequence'] += list(zip(*batch['mutant_mutated_seq_pairs']))[1]
                     output_scores['mutant'] += list(zip(*batch['mutant_mutated_seq_pairs']))[0]
                 if self.model.model_type=="ProteinNPT":
-                    processed_batch = proteinnpt.data_processing.process_batch(
+                    processed_batch = proteinnpt.proteinnpt.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 
@@ -425,7 +424,7 @@ class Trainer():
                         indel_mode=self.args.indel_mode
                     )
                 else:
-                    processed_batch = baselines.data_processing.process_batch(
+                    processed_batch = proteinnpt.baselines.data_processing.process_batch(
                         batch = batch,
                         model = self.model,
                         alphabet = self.model.alphabet, 

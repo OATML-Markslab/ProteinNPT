@@ -6,14 +6,18 @@ import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import ConvBertConfig, ConvBertLayer
-from utils.esm.modules import (
+
+from proteinnpt.utils.esm.modules import (
     AxialTransformerLayer,
     LearnedPositionalEmbedding,
     RobertaLMHead,
     ESM1bLayerNorm,
 )
-import utils
-from utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
+from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
+from proteinnpt.utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
+from proteinnpt.utils.tranception.config import TranceptionConfig
+from proteinnpt.utils.tranception.model_pytorch import TranceptionLMHeadModel
+from proteinnpt.utils.model_utils import get_parameter_names
 
 class ProteinNPTModel(nn.Module):
     def __init__(self, args, alphabet):
@@ -43,17 +47,17 @@ class ProteinNPTModel(nn.Module):
         
         assert self.args.embed_dim % self.args.attention_heads ==0, "Embedding size {} needs to be a multiple of number of heads {}".format(self.args.embed_dim, self.args.attention_heads)
         if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
-            model, _ = utils.esm.pretrained.load_model_and_alphabet(args.embedding_model_location)
+            model, _ = load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             self.aa_embedding_dim = self.aa_embedding.embed_tokens.weight.shape[-1]
         elif self.args.aa_embeddings == "Tranception":
             self.aa_embedding_dim = 1280
             config = json.load(open(args.embedding_model_location+os.sep+'config.json'))
-            config = utils.tranception.config.TranceptionConfig(**config)
+            config = TranceptionConfig(**config)
             config.tokenizer = self.alphabet
             config.inference_time_retrieval_type = None
             config.retrieval_aggregation_mode = None
-            self.aa_embedding = utils.tranception.model_pytorch.TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
+            self.aa_embedding = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.embedding_model_location,config=config)
         elif self.args.aa_embeddings == "Linear_embedding":
             self.aa_embedding = nn.Embedding(
                                     self.alphabet_size, self.args.embed_dim, padding_idx=self.padding_idx
@@ -393,7 +397,7 @@ class ProteinNPTModel(nn.Module):
         Adapted from Huggingface Transformers library.
         """
         if self.optimizer is None:
-            all_parameters = utils.model_utils.get_parameter_names(self, [nn.LayerNorm])
+            all_parameters = get_parameter_names(self, [nn.LayerNorm])
             decay_parameters = [name for name in all_parameters if ("bias" not in name and "pseudo_likelihood_weight" not in name and 'zero_shot_fitness_prediction_weight' not in name)]
             psl_decay_parameters = [name for name in all_parameters if ("bias" not in name and ("pseudo_likelihood_weight" in name or "zero_shot_fitness_prediction_weight" in name))]
             optimizer_grouped_parameters = [
