@@ -18,9 +18,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttenti
 from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
 
 from .activations import tranception_ACT2FN
-from .outputs import (
-    TranceptionCausalLMOutputWithCrossAttentions,
-)
+from .outputs import TranceptionCausalLMOutputWithCrossAttentions
 from .utils import msa_utils
 from .utils import scoring_utils
 

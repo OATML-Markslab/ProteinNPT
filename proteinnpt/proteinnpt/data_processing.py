@@ -2,8 +2,8 @@ import sys
 import numpy as np
 import torch
 import h5py
-from proteinnpt.utils.data_utils import mask_targets, mask_protein_sequences, slice_sequences, get_indices_retrieved_embeddings
-from proteinnpt.utils.msa_utils import weighted_sample_MSA
+from ..utils.data_utils import mask_targets, mask_protein_sequences, slice_sequences, get_indices_retrieved_embeddings
+from ..utils.msa_utils import weighted_sample_MSA
 
 def PNPT_sample_training_points_inference(training_sequences, sequences_sampling_method, num_sampled_points):
     replace = True if "with_replacement" in sequences_sampling_method else False

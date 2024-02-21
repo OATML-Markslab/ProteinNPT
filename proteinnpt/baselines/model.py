@@ -8,12 +8,12 @@ from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import ConvBertConfig, ConvBertLayer
 
-from proteinnpt.utils.esm.modules import ESM1bLayerNorm
-from proteinnpt.utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
-from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
-from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer,TranceptionLMHeadModel
-from proteinnpt.utils.tranception.config import TranceptionConfig
-from proteinnpt.utils.model_utils import get_parameter_names
+from ..utils.esm.modules import ESM1bLayerNorm
+from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
+from ..utils.esm.pretrained import load_model_and_alphabet
+from ..utils.tranception.model_pytorch import get_tranception_tokenizer,TranceptionLMHeadModel
+from ..utils.tranception.config import TranceptionConfig
+from ..utils.model_utils import get_parameter_names
 
 class AugmentedPropertyPredictor(nn.Module):
     def __init__(self, args, alphabet):

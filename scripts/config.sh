@@ -3,7 +3,7 @@ export proteinnpt_data_path="Replace this string with the path to the folder whe
 export proteinnpt_repo_path="Replace this string with the path to the root of your local copy of the ProteinNPT folder"
 
 # Reference files for substitution and indel assays
-export DMS_reference_file_path_subs=$proteinnpt_repo_path/proteinnpt/utils/proteingym/DMS_substitutions_tests.csv
+export DMS_reference_file_path_subs=$proteinnpt_repo_path/proteinnpt/utils/proteingym/DMS_substitutions.csv
 export DMS_reference_file_path_indels=$proteinnpt_repo_path/proteinnpt/utils/proteingym/DMS_indels.csv
 export DMS_reference_file_path_multi_objectives=$proteinnpt_repo_path/proteinnpt/utils/proteingym/DMS_multi_objectives.csv
 

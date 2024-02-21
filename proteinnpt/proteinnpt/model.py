@@ -7,17 +7,17 @@ from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import ConvBertConfig, ConvBertLayer
 
-from proteinnpt.utils.esm.modules import (
+from ..utils.esm.modules import (
     AxialTransformerLayer,
     LearnedPositionalEmbedding,
     RobertaLMHead,
     ESM1bLayerNorm,
 )
-from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
-from proteinnpt.utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
-from proteinnpt.utils.tranception.config import TranceptionConfig
-from proteinnpt.utils.tranception.model_pytorch import TranceptionLMHeadModel
-from proteinnpt.utils.model_utils import get_parameter_names
+from ..utils.esm.pretrained import load_model_and_alphabet
+from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
+from ..utils.tranception.config import TranceptionConfig
+from ..utils.tranception.model_pytorch import TranceptionLMHeadModel
+from ..utils.model_utils import get_parameter_names
 
 class ProteinNPTModel(nn.Module):
     def __init__(self, args, alphabet):

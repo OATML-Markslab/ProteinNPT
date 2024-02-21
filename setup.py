@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup,find_packages
 
 with open("README.md") as f:
     readme = f.read()
@@ -12,5 +12,5 @@ setup(
     version="1.0",
     license="MIT",
     url="https://github.com/OATML-Markslab/ProteinNPT",    
-    packages=["proteinnpt"]
+    packages=find_packages()
 )
