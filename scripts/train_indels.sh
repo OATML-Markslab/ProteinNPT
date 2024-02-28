@@ -5,7 +5,7 @@ export model_config_location=$Embeddings_Tranception_config_location #Path to mo
 export sequence_embeddings_folder=$Tranception_embeddings_indels_folder #Path to sequence embeddings [MSAT_embeddings_indels_folder|Tranception_embeddings_indels_folder|ESM1v_embeddings_indels_folder]
 
 export target_config_location=$target_config_location_fitness
-export assay_location=$CV_indels_data_folder
+export assay_data_folder=$CV_indels_data_folder
 export augmentation="zero_shot_fitness_predictions_covariate" #[Overwrite to "None" for ESM models as zero-shot fitness predictions are unavailable for indels | "zero_shot_fitness_predictions_covariate" for Tranception]
 
 export fold_variable_name='fold_random_5'
@@ -17,7 +17,7 @@ python train.py \
     --assay_reference_file_location ${DMS_reference_file_path_indels} \
     --model_config_location ${model_config_location} \
     --target_config_location ${target_config_location} \
-    --assay_location ${assay_location} \
+    --assay_data_folder ${assay_data_folder} \
     --augmentation ${augmentation} \
     --zero_shot_fitness_predictions_location ${zero_shot_fitness_predictions_indels} \
     --fold_variable_name ${fold_variable_name} \
