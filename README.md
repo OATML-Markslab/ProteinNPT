@@ -59,8 +59,8 @@ We also provide an example script to train a ProteinNPT or baseline model to pre
 ### Pipeline
 Run `pipeline.sh` to perform all 3 steps described above sequentially. For ProteinNPT, only 3 parameters are required:
 - `assay_data_location` --> full path to the assay you want to train/test on (expects a `.csv` file). At a minimum this file requires 2 fields: mutated_sequence (full sequence of amino acids) and DMS_score (assay measurement). If no fold variable is included in the assay file, the pipeline script will automatically create a fold_random_5 variable, assigning each mutant to folds 0-4 at random. You may also use your own cross-validation scheme (eg., assign all training sequences to fold 0, all test sequences to fold 1). To that end, you only need to pass to the pipeline script the name of that fold variable via the `fold_variable_name` argument and specify the index of the test fold via the `test_fold_index` argument (if `test_fold_index` is not passed as argument, the script will automatically perform a full cross-validation, rotating the test fold index at each iteration).
-- `MSA_location`()
-- `target_seq`()
+- `MSA_location` --> full path to the MSA to be used to compute MSA Transformer embeddings in ProteinNPT (optional for ESM1v baselines)
+- `target_seq` --> wild type sequence that is mutated in the experimental assay
 Please refer to the argsparse parameter description for more details on optional parameters.
 
 ## License
