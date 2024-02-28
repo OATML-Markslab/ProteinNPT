@@ -102,9 +102,9 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Extract embeddings')
-    parser.add_argument('--assay_reference_file_location', default="../proteingym/ProteinGym_reference_file_substitutions.csv", type=str, help='Path to reference file with list of assays to score')
+    parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
     parser.add_argument('--assay_index', default=0, type=int, help='Index of assay in the ProteinGym reference file to compute embeddings for')
-    parser.add_argument('--input_data_location', default=None, type=str, help='Location of input data with all mutated sequences')
+    parser.add_argument('--input_data_location', default=None, type=str, help='Location of input data with all mutated sequences [If a reference file is used, this is the location where are assays are stored. If a single csv file is passed, this is the full path to that assay data]')
     parser.add_argument('--output_data_location', default=None, type=str, help='Location of output embeddings')
     parser.add_argument('--model_type', default='Tranception', type=str, help='Model type to compute embeddings with')
     parser.add_argument('--model_location', default=None, type=str, help='Location of model used to embed protein sequences')
@@ -120,15 +120,36 @@ if __name__ == "__main__":
     parser.add_argument('--path_to_hhfilter', default=None, type=str, help='Path to hhfilter (for filtering MSAs)')
     parser.add_argument('--path_to_clustalomega', default=None, type=str, help='Path to clustal omega (to re-align sequences in indel assays) [indels only]')
     parser.add_argument('--fast_MSA_mode', action='store_true', help='Use this mode to speed up embedding extraction for MSA Transformer by scoring multiple mutated sequences (batch_size of them) at once (has minor impact on quality)')
+    #If not using a reference file
+    parser.add_argument('--target_seq', default=None, type=str, help='Wild type sequence mutated in the assay (to be provided if not using a reference file)')
+    parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (.a2m)')
+    parser.add_argument('--weight_file_name', default=None, type=str, help='Name of weight file')
+    parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     args = parser.parse_args()
 
     assert (args.indel_mode and not args.fast_MSA_mode and args.batch_size==1) or (args.fast_MSA_mode and args.model_type=="MSA_Transformer") or (not args.indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
 
     # Path to the input CSV file
-    assay_reference_file = pd.read_csv(args.assay_reference_file_location)
-    assay_id=assay_reference_file["DMS_id"][args.assay_index]
-    assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
-    target_seq = assay_reference_file["target_seq"][assay_reference_file["DMS_id"]==assay_id].values[0]
+    if args.assay_reference_file_location is not None:
+        assay_reference_file = pd.read_csv(args.assay_reference_file_location)
+        assay_id=assay_reference_file["DMS_id"][args.assay_index]
+        assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
+        args.input_data_location = args.input_data_location + os.sep + assay_file_name
+        target_seq = assay_reference_file["target_seq"][assay_reference_file["DMS_id"]==assay_id].values[0]
+    else:
+        assert args.target_seq is not None, "Reference file provided and target_seq not provided"
+        assay_id = args.input_data_location.split(".csv")[0].split(os.sep)[-1]
+        assay_file_name = args.input_data_location.split(os.sep)[-1]
+        target_seq = args.target_seq
+        if args.MSA_location:
+            args.MSA_filename = args.MSA_location.split(os.sep)[-1]
+            args.MSA_data_folder = os.sep.join(args.MSA_location.split(os.sep)[:-1])
+        if (args.MSA_start is None) or (args.MSA_end is None): 
+            if args.MSA_data_folder: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+            args.MSA_start = 1
+            args.MSA_end = len(args.target_seq)
+
     print("Assay: {}".format(assay_file_name))
 
     # Load the PyTorch model from the checkpoint
@@ -151,7 +172,7 @@ if __name__ == "__main__":
     model.eval()
     model.cuda()
     #DMS file
-    df = pd.read_csv(args.input_data_location + os.sep + assay_file_name)
+    df = pd.read_csv(args.input_data_location)
     if 'mutated_sequence' not in df: df['mutated_sequence'] = df['mutant'] # May happen on indel assays
     df = df[['mutant','mutated_sequence']]
 
@@ -162,11 +183,11 @@ if __name__ == "__main__":
     output_embeddings_path = output_embeddings_path + os.sep + assay_file_name.split(".csv")[0] + '.h5'
 
     if args.model_type=="MSA_Transformer":
-        MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
-        MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0]
+        MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] if args.assay_reference_file_location is not None else args.MSA_filename
+        MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0] if args.assay_reference_file_location is not None else args.weight_file_name
         MSA_sequences, MSA_weights = process_MSA(args, MSA_filename, MSA_weights_filename)
-        MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0])
-        MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0])        
+        MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0]) if args.assay_reference_file_location is not None else args.MSA_start
+        MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0]) if args.assay_reference_file_location is not None else args.MSA_end
     else:
         MSA_sequences = None
         MSA_weights = None

@@ -64,8 +64,8 @@ def main():
         if args.inference_time_retrieval:
             MSA_data_file = args.MSA_folder + os.sep + args.MSA_filename if args.MSA_folder is not None else None
             MSA_weight_file_name = args.MSA_weights_folder + os.sep + args.MSA_weight_file_name if args.MSA_weights_folder is not None else None
-            MSA_start = args.MSA_start - 1 # MSA_start based on 1-indexing
-            MSA_end = args.MSA_end
+            MSA_start = args.MSA_start - 1 if args.MSA_start else 0 # MSA_start based on 1-indexing
+            MSA_end = args.MSA_end if args.MSA_end else len(target_seq)
 
     config = json.load(open(args.checkpoint+os.sep+'config.json'))
     config = TranceptionConfig(**config)

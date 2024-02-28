@@ -33,7 +33,8 @@ def setup_config_and_paths(args):
     if not os.path.exists(args.output_scores_location): os.mkdir(args.output_scores_location)
     args.model_location = args.data_location + os.sep + 'checkpoint' + os.sep + args.model_name_suffix
     if not os.path.exists(args.model_location): os.mkdir(args.model_location)
-    
+    if args.assay_data_location and not args.assay_data_folder: args.assay_data_folder = [ os.sep.join(args.assay_data_location.split(os.sep)[:-1]) ] # args.assay_data_folder is a list
+
     # Target config
     args.target_config=json.load(open(args.target_config_location))
     zero_shot_predictions_mapping={
@@ -66,15 +67,15 @@ def setup_config_and_paths(args):
     
     for target_index,target in enumerate(args.target_config):
         if "location" not in args.target_config[target].keys(): # Note: the case of zero-shot fitness predictions is already handled above if present
-            if args.assay_location is not None: # We passed at least one path for the assay location
+            if args.assay_data_folder is not None: # We passed at least one path for the assay location
                 num_targets = [x for x in args.target_config.keys() if args.target_config[x]["in_NPT_loss"]]
-                if len(args.assay_location) > 1:
-                    assert len(args.assay_location)==num_targets, "Trying to predict {} targets, but only referencing {} distinct paths for them.".format(num_targets,len(args.assay_location))
-                    args.target_config[target]["location"] = args.assay_location[target_index]
-                    print("Location used for target {} if {}".format(target,args.assay_location[target_index]))
+                if len(args.assay_data_folder) > 1:
+                    assert len(args.assay_data_folder)==num_targets, "Trying to predict {} targets, but only referencing {} distinct paths for them.".format(num_targets,len(args.assay_location))
+                    args.target_config[target]["location"] = args.assay_data_folder[target_index]
+                    print("Location used for target {} if {}".format(target,args.assay_data_folder[target_index]))
                 else:
-                    args.target_config[target]["location"] = args.assay_location[0]
-                    print("Location used for target {} if {}".format(target,args.assay_location[0]))
+                    args.target_config[target]["location"] = args.assay_data_folder[0]
+                    print("Location used for target {} if {}".format(target,args.assay_data_folder[0]))
             else:
                 print("Assay location not provided. Defaulting to location for single substitutions fitness assays: {}".format(args.data_location + os.sep + 'data/fitness/substitutions_singles'))
                 args.target_config[target]["location"] = args.data_location + os.sep + 'data/fitness/substitutions_singles'
@@ -149,10 +150,19 @@ def main(args):
     print("We want to predict {} target(s): {}".format(num_targets, ' and '.join(target_names)))
     if num_targets_input > num_targets: print("We leverage {} target(s) and auxiliary labels: {}".format(num_targets_input, ' and '.join(target_names_input)))
 
-    assay_reference_file = pd.read_csv(args.assay_reference_file_location)
-    assay_id=assay_reference_file["DMS_id"][args.assay_index]
-    args.seq_len = int(assay_reference_file["seq_len"][assay_reference_file["DMS_id"]==assay_id].values[0])
-    args.MSA_seq_len = int(assay_reference_file["MSA_len"][assay_reference_file["DMS_id"]==assay_id].values[0])
+    if args.assay_reference_file_location is not None:
+        assay_reference_file = pd.read_csv(args.assay_reference_file_location)
+        assert "DMS_id" in assay_reference_file.columns, "Reference file must include a DMS_id"
+        assay_id=assay_reference_file["DMS_id"][args.assay_index]
+        assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] # File name of main assay used during training (if single property, this is also the only assay). Retrieved embeddings are always for this assay.
+        target_seq = assay_reference_file["target_seq"][assay_reference_file["DMS_id"]==assay_id].values[0]
+        args.seq_len = int(assay_reference_file["seq_len"][assay_reference_file["DMS_id"]==assay_id].values[0]) if "seq_len" in assay_reference_file.columns else len(target_seq)
+        args.MSA_seq_len = int(assay_reference_file["MSA_len"][assay_reference_file["DMS_id"]==assay_id].values[0]) if "MSA_len" in assay_reference_file.columns else len(target_seq)
+    else:
+        assay_id = args.assay_data_location.split(".csv")[0].split(os.sep)[-1]
+        assay_file_name = args.assay_data_location.split(os.sep)[-1]
+        args.seq_len = len(args.target_seq)
+        args.MSA_seq_len = args.MSA_end - args.MSA_start + 1
     print("Training model for assay: {}, where the test_fold index is: {}".format(assay_id, args.test_fold_index))
     args.save_model_checkpoint = not args.do_not_save_model_checkpoint
     args.frozen_embedding_parameters = not args.fine_tune_model_embedding_parameters
@@ -172,7 +182,6 @@ def main(args):
     with open(args.model_location+os.sep+model_name+os.sep+'training_arguments', 'w') as f:
         json.dump(args.__dict__, f, indent=2)
     print("Model name: "+model_name)
-    assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] # File name of main assay used during training (if single property, this is also the only assay). Retrieved embeddings are always for this assay.
     args.sequence_embeddings_location = args.sequence_embeddings_folder + os.sep + assay_file_name.split(".csv")[0] + '.h5' if args.sequence_embeddings_folder else None
     print("Sequence embeddings: {}".format(args.sequence_embeddings_location))
     
@@ -202,14 +211,22 @@ def main(args):
             if target=="zero_shot_fitness_predictions":
                 assay_file_names[target] = assay_file_name # The name of the zero-shot prediction file matches that of the main assay
             else:
+                assert args.assay_reference_file_location is not None, "Multi-property training not yet supported without reference file"
                 assay_file_names[target] = assay_reference_file[target][assay_reference_file["DMS_id"]==assay_id].values[0]
             
     # Load training, val and test data
-    UniProt_id = assay_reference_file["UniProt_ID"][assay_reference_file["DMS_id"]==assay_id].values[0]
-    MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
-    MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0]
-    MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0])
-    MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0])
+    if args.assay_reference_file_location is not None:
+        UniProt_id = assay_reference_file["UniProt_ID"][assay_reference_file["DMS_id"]==assay_id].values[0] if "UniProt_ID" in assay_reference_file.columns else assay_id
+        MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] if "MSA_filename" in assay_reference_file.columns else None
+        MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0] if "weight_file_name" in assay_reference_file.columns else None
+        MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0]) if "MSA_start" in assay_reference_file.columns else 1
+        MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0]) if "MSA_end" in assay_reference_file.columns else args.seq_len
+    else:
+        UniProt_id = assay_id
+        MSA_filename = args.MSA_location.split(os.sep)[-1]
+        MSA_weights_filename = args.MSA_sequence_weights_filename
+        MSA_start_position = args.MSA_start
+        MSA_end_position = args.MSA_end
     train_data, val_data, test_data, target_processing = get_train_val_test_data(args = args, assay_file_names = assay_file_names)
     MSA_sequences, MSA_weights = process_MSA(args, MSA_filename, MSA_weights_filename) if args.aa_embeddings=="MSA_Transformer" else (None, None)
     
@@ -296,7 +313,7 @@ if __name__ == "__main__":
     #Data parameters
     parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
     parser.add_argument('--assay_index', default=None, type=int, help='Index of main assay to train on/predict for in the ProteinGym reference file')
-    parser.add_argument('--assay_location', default=None, type=str, nargs='*', help='Location of assay file(s) (including CV splits variables). If predicting multiple assays in different directories, pass as many location as needed')
+    parser.add_argument('--assay_data_folder', default=None, type=str, nargs='*', help='Location of assay file(s) (including CV splits variables). If predicting multiple assays in different directories, pass as many location as needed')
     parser.add_argument('--target_config_location', default=None, type=str, help='Config file for assays to be used for modelings')
     parser.add_argument('--augmentation', default=None, type=str, help='Type of augmentation used ["None","zero_shot_fitness_predictions_covariate" or "zero_shot_fitness_predictions_auxiliary_labels"]. Note that default value is set in each model config files')
     parser.add_argument('--zero_shot_fitness_predictions_location', default=None, type=str, help='Path to zero-shot fitness predictions used as additional covariates (baselines) or auxiliary labels (ProteinNPT)')
@@ -356,18 +373,35 @@ if __name__ == "__main__":
     parser.add_argument('--fine_tune_model_embedding_parameters', action='store_true', help='Whether to fine tune the model providing protein sequence embeddings')
     parser.add_argument('--training_fp16', action='store_true', help='Whether to use 16-bit (mixed) precision training (through NVIDIA apex) instead of 32-bit training.')
     parser.add_argument('--use_wandb', action='store_true', help='Whether to log runs in wandb')
+    #No reference file
+    parser.add_argument('--assay_data_location', default=None, type=str, help='Path to assay data csv (expects a csv, with at least three columns: mutant or mutated_sequence | DMS_score | fold_variable_name)')
+    parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (expects .a2m)')
+    parser.add_argument('--MSA_sequence_weights_filename', default=None, type=str, help='Sequence weights in MSA')
+    parser.add_argument('--target_seq', default=None, type=str, help='WT sequence mutated in the assay')
+    parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     args = parser.parse_args()
-
+    
     setup_config_and_paths(args)
     print(args.embedding_model_location)
+
+    if (args.MSA_location is not None) and ((args.MSA_start is None) or (args.MSA_end is None)):
+        print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+        args.MSA_start = 1
+        args.MSA_end = len(args.target_seq)
+        
     if args.test_fold_index==-1:
         target_names = [x for x in args.target_config.keys() if args.target_config[x]["in_NPT_loss"]]
-        assay_reference_file = pd.read_csv(args.assay_reference_file_location)
-        assay_id=assay_reference_file["DMS_id"][args.assay_index]
-        assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
-        for target in target_names:
-            if args.target_config[target]["main_target"]: main_target_name=target
-        assay_df = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_name)
+        if args.assay_reference_file_location is not None:
+            assay_reference_file = pd.read_csv(args.assay_reference_file_location)
+            assay_id=assay_reference_file["DMS_id"][args.assay_index]
+            assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
+            for target in target_names:
+                if args.target_config[target]["main_target"]: main_target_name=target
+            assay_df = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_name)
+        else:
+            assert args.assay_data_location is not None, "Reference file nor assay data file not provided"
+            assay_df = pd.read_csv(args.assay_data_location)
         all_folds = [int(x) for x in sorted(list(assay_df[args.fold_variable_name].unique()))]
         num_folds = len(all_folds)
         print("There are {} unique fold values in the assay data for the selected fold_variable_name: {}".format(num_folds,all_folds))

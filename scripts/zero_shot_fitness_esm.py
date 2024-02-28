@@ -209,6 +209,12 @@ def create_parser():
         action='store_true',
         help='Whether to overwrite prior scores in the dataframe'
     )
+    #No ref file provided
+    parser.add_argument('--target_seq', default=None, type=str, required=True, help='WT sequence mutated in the assay')
+    parser.add_argument('--weight_file_name', default=None, type=str, help='Wild type sequence mutated in the assay (to be provided if not using a reference file)')
+    parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    
     
     parser.add_argument("--nogpu", action="store_true", help="Do not use GPU even if available")
     return parser
@@ -260,6 +266,7 @@ def main(args):
     print("Arguments:", args)
 
     # Load the deep mutational scan
+    args.mutation_col='mutant'
     if args.dms_index is not None:
         mapping_protein_seq_DMS = pd.read_csv(args.dms_mapping)
         DMS_id = mapping_protein_seq_DMS["DMS_id"][args.dms_index]
@@ -301,10 +308,18 @@ def main(args):
                 target_seq_start_index = msa_start_index
                 target_seq_end_index = msa_end_index
         df = pd.read_csv(args.dms_input)
-        args.mutation_col='mutant'
     else:
-        print(f"DMS index is None, using args.dms_input as a filename directly: {args.dms_input}")
+        DMS_id = str(args.dms_input).split(os.sep)[-1].split('.csv')[0]
+        args.dms_output=str(args.dms_output)+os.sep+DMS_id+'.csv'
         target_seq_start_index = args.offset_idx
+        args.sequence = args.target_seq.upper()
+        if (args.MSA_start is None) or (args.MSA_end is None): 
+            if args.msa_path: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+            args.MSA_start = 1
+            args.MSA_end = len(args.target_seq)
+        msa_start_index = args.MSA_start
+        msa_end_index = args.MSA_end
+        MSA_weight_file_name = args.msa_weights_folder + os.sep + args.weight_file_name if args.msa_weights_folder is not None else None
         df = pd.read_csv(args.dms_input)
     
     if len(df) == 0:
