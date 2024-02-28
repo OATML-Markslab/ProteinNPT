@@ -32,7 +32,7 @@ parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA 
 parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
 parser.add_argument('--batch_size', default=1, type=int, help='Eval batch size')
 parser.add_argument('--embeddings_MSAT_num_MSA_sequences', default=384, type=int, help='Num MSA sequences to score each sequence with')
-parser.add_argument('--MSA_sequence_weights_theta', default=0.2, type=float, help='Num MSA sequences to score each sequence with')
+parser.add_argument('--MSA_sequence_weights_theta', default=0.2, type=float, help='Theta parameter used for sequence weights computation')
 parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
 parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
 

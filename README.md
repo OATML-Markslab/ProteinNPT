@@ -27,11 +27,13 @@ Edit lines 2 & 3 of the `config.sh` bash script with the `data_path` and `repo_p
 
 ## Usage
 
-## Step 1: Extract sequence embeddings (optional)
+The end-to-end process to train ProteinNPT (and other baselines) follows the 3 steps below. For convenience, we also provide a pipeline script (`scripts/pipeline.sh`) which performs these various steps sequentially with minimal user input (see details below).
+
+### Step 1: Extract sequence embeddings (optional)
 Run `embeddings_subs.sh` (or `embeddings_indels.sh`) to create sequence embeddings with the pretrained protein language model of interest, for the desired DMS assays.
 This step is optional (embeddings are computed on-the-fly otherwise) and will require sufficient disk space to save pre-computed embeddings, but it will significantly reduce run time and memory requirements during training (especially for ProteinNPT).
 
-## Step 2: Compute zero-shot fitness predictions (optional)
+### Step 2: Compute zero-shot fitness predictions (optional)
 Run `zero_shot_fitness_subs.sh` (or `zero_shot_fitness_indels.sh`) to compute zero-shot fitness predictions with the relevant pretrained protein models. 
 
 Adjust the following variables as needed:
@@ -43,7 +45,7 @@ Note that:
 1. We provide all zero-shot predictions for ProteinGym DMS assays in `ProteinNPT_data.zip` and thus you do not need to recompute these if interested in these same assays
 2. We have found that leveraging zero-shot fitness predictions as additional covariate or auxiliary label generally helps performance, especially when extrapolating to positions not seen during training. However, these zero-shot predictions are not strictly required for ProteinNPT or the various baselines to run, and may be less relevant for predicting properties that differ from fitness.
 
-## Step 3: Train ProteinNPT models (or baselines)
+### Step 3: Train ProteinNPT models (or baselines)
 Run `train_subs.sh` (or `train_indels.sh`) to train the desired ProteinNPT or baseline models.
 
 Adjust the following variables as needed:
@@ -52,7 +54,14 @@ Adjust the following variables as needed:
 - `sequence_embeddings_folder` (location of saved sequence embeddings on disk -- you may use the relevant variables defined in `config.sh` for convenience)
 - `fold_variable_name` (type of cross-validation scheme to be used for training -- to be chosen within `fold_random_5`, `fold_contiguous_5`, or `fold_modulo_5`)
 
-We also provide an example script to train a ProteiNPT or baseline model to predict several properties simultaneously in `train_multi_objectives.sh`.
+We also provide an example script to train a ProteinNPT or baseline model to predict several properties simultaneously in `train_multi_objectives.sh`.
+
+### Pipeline
+Run `pipeline.sh` to perform all 3 steps described above sequentially. For ProteinNPT, only 3 parameters are required:
+- `assay_data_location` --> full path to the assay you want to train/test on (expects a `.csv` file). At a minimum this file requires 2 fields: mutated_sequence (full sequence of amino acids) and DMS_score (assay measurement). If no fold variable is included in the assay file, the pipeline script will automatically create a fold_random_5 variable, assigning each mutant to folds 0-4 at random. You may also use your own cross-validation scheme (eg., assign all training sequences to fold 0, all test sequences to fold 1). To that end, you only need to pass to the pipeline script the name of that fold variable via the `fold_variable_name` argument and specify the index of the test fold via the `test_fold_index` argument (if `test_fold_index` is not passed as argument, the script will automatically perform a full cross-validation, rotating the test fold index at each iteration).
+- `MSA_location`()
+- `target_seq`()
+Please refer to the argsparse parameter description for more details on optional parameters.
 
 ## License
 This project is available under the MIT license found in the LICENSE file in this GitHub repository.
