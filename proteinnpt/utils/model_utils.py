@@ -380,7 +380,7 @@ class Trainer():
                                 dataset=test_data, 
                                 batch_size=self.args.eval_num_sequences_to_score_per_batch_per_gpu, 
                                 shuffle=False,
-                                num_workers=self.args.num_data_loaders_workers, 
+                                num_workers=self.args.num_data_loaders_workers,
                                 pin_memory=True,
                                 collate_fn=collate_fn_protein_npt
                             )

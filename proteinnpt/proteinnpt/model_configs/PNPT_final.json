@@ -6,7 +6,7 @@
     "augmentation": "zero_shot_fitness_predictions_auxiliary_labels",
     "MSA_data_folder": "data/MSA/MSA_files",
     "MSA_weight_data_folder": "data/MSA/MSA_weights",
-    "path_to_hhfilter": "hhfilter",
+    "path_to_hhfilter": "utils/hhfilter",
     "max_positions": 1024,
     "target_prediction_head": "Target_embeddings_only",
     "embed_dim": 200,

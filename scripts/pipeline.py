@@ -1,31 +1,33 @@
 import argparse
-import os,json
+import os
+import json
 import pandas as pd
 import warnings
-import proteinnpt
+import subprocess
 
 from proteinnpt.utils import cv_split
 from proteinnpt.utils.tranception.utils.scoring_utils import get_mutated_sequence
 from proteinnpt.utils.msa_utils import MSA_processing
-warnings.filterwarnings("ignore", category=UserWarning, module='transformers')
+
+#warnings.filterwarnings("ignore", category=UserWarning, module='transformers')
 
 parser = argparse.ArgumentParser(description='End-to-end ProteinNPT pipeline on new assays')
-###Required parameters
+
+### Required parameters
 parser.add_argument('--assay_data_location', default=None, type=str, required=True, help='Path to assay data csv (expects a csv, with at least three columns: mutant or mutated_sequence | DMS_score | fold_variable_name)')
 parser.add_argument('--target_seq', default=None, type=str, required=True, help='WT sequence mutated in the assay')
 parser.add_argument('--proteinnpt_data_location', type=str, required=True, help='Path to core ProteinNPT datasets (e.g., MSA files, DMS assays, pretrained model checkpoints). Training output will also be stored there (i.e., checkpoints and test set predictions).')
-###Optional parameters
-#General
-parser.add_argument('--indel_mode', action='store_true', help='Use this mode if wokring with indel assays')
+
+### Optional parameters
+parser.add_argument('--indel_mode', action='store_true', help='Use this mode if working with indel assays')
 parser.add_argument('--model_name_suffix', default='base_pipeline', type=str, help='Suffix to reference model')
 parser.add_argument('--model_name', default="PNPT_MSAT_final", type=str, help='Name of model used for training and inference [Optional -- defaults to ProteinNPT]')
 parser.add_argument('--fold_variable_name', default="train_test_split", type=str, help='Name of cross-validation fold variable name in the assay data (Optional -- defaults to "train_test_split" with 0 for train, 1 for test)')
 parser.add_argument('--test_fold_index', default=1, type=int, help='Index of test fold (if "-1", we loop through all folds iteratively)')
 parser.add_argument('--model_config_location', default=None, type=str, help='Path to main model config file that specifies all parameters as needed [Optional - if None, we default to the config from model_type]')
 parser.add_argument('--target_config_location', default=None, type=str, help='Config file for assays to be used for modelings [Optional - if None, we default to single property prediction, and expects the variable name is DMS_score in the assay csv]')
-parser.add_argument('--sequence_embeddings_folder', default=None, type=str, help='Location of stored embeddings on disk [Optional -- defaults to stadard embeddings location in data folder]')
+parser.add_argument('--sequence_embeddings_folder', default=None, type=str, help='Location of stored embeddings on disk [Optional -- defaults to standard embeddings location in data folder]')
 parser.add_argument('--number_folds', default=5, type=int, help='Number of folds to create if fold_variable_name not in assay file')
-#Embeddings
 parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (expects .a2m)')
 parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
 parser.add_argument('--batch_size', default=1, type=int, help='Eval batch size')
@@ -33,6 +35,7 @@ parser.add_argument('--embeddings_MSAT_num_MSA_sequences', default=384, type=int
 parser.add_argument('--MSA_sequence_weights_theta', default=0.2, type=float, help='Num MSA sequences to score each sequence with')
 parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
 parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+
 args = parser.parse_args()
 
 default_config_mapping = {
@@ -42,16 +45,18 @@ default_config_mapping = {
     "Embeddings_ESM1v_final": "../proteinnpt/baselines/model_configs/Embeddings_ESM1v_final.json",
     "OHE_MSAT_final": "../proteinnpt/baselines/model_configs/OHE_MSAT_final.json",
 }
+
 model_location_mapping = {
-    "MSA_Transformer": args.proteinnpt_data_location + os.sep + "ESM/MSA_Transformer/esm_msa1b_t12_100M_UR50S.pt",
-    "Tranception": args.proteinnpt_data_location + os.sep + "Tranception/Tranception_Large",
-    "ESM1v": args.proteinnpt_data_location + os.sep + "ESM/ESM1v/esm1v_t33_650M_UR90S_1.pt",
-    "ESM1v-2": args.proteinnpt_data_location + os.sep + "ESM/ESM1v/esm1v_t33_650M_UR90S_2.pt",
-    "ESM1v-3": args.proteinnpt_data_location + os.sep + "ESM/ESM1v/esm1v_t33_650M_UR90S_3.pt",
-    "ESM1v-4": args.proteinnpt_data_location + os.sep + "ESM/ESM1v/esm1v_t33_650M_UR90S_4.pt",
-    "ESM1v-5": args.proteinnpt_data_location + os.sep + "ESM/ESM1v/esm1v_t33_650M_UR90S_5.pt"
+    "MSA_Transformer": os.path.join(args.proteinnpt_data_location, "ESM", "MSA_Transformer", "esm_msa1b_t12_100M_UR50S.pt"),
+    "Tranception": os.path.join(args.proteinnpt_data_location, "Tranception", "Tranception_Large"),
+    "ESM1v": os.path.join(args.proteinnpt_data_location, "ESM", "ESM1v", "esm1v_t33_650M_UR90S_1.pt"),
+    "ESM1v-2": os.path.join(args.proteinnpt_data_location, "ESM", "ESM1v", "esm1v_t33_650M_UR90S_2.pt"),
+    "ESM1v-3": os.path.join(args.proteinnpt_data_location, "ESM", "ESM1v", "esm1v_t33_650M_UR90S_3.pt"),
+    "ESM1v-4": os.path.join(args.proteinnpt_data_location, "ESM", "ESM1v", "esm1v_t33_650M_UR90S_4.pt"),
+    "ESM1v-5": os.path.join(args.proteinnpt_data_location, "ESM", "ESM1v", "esm1v_t33_650M_UR90S_5.pt"),
 }
 
+#Set defaults
 if not args.model_config_location: args.model_config_location = default_config_mapping[args.model_name]
 model_config = json.load(open(args.model_config_location))
 if args.target_config_location is None: args.target_config_location = "../proteinnpt/utils/target_configs/fitness.json"
@@ -70,8 +75,8 @@ if args.fold_variable_name not in assay_data.columns:
     assay_data = cv_split.create_folds_random(assay_data, n_folds=args.number_folds)
 assay_data.to_csv(args.assay_data_location,index=False)
 
-if args.sequence_embeddings_folder is None: args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings"
-embeddings_location = args.sequence_embeddings_folder + os.sep + model_config['aa_embeddings'] + os.sep + DMS_id + ".h5"
+if args.sequence_embeddings_folder is None: args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings" + os.sep + model_config['aa_embeddings']
+embeddings_location = args.sequence_embeddings_folder + os.sep + DMS_id + ".h5"
 weight_file_name = DMS_id + '_theta_' + str(args.MSA_sequence_weights_theta) + ".npy"
 if not os.path.exists(embeddings_location) and model_config['aa_embeddings']!="One_hot_encoding":
     print("#"*100+"\n Step1: Computing sequence embeddings for the {} assay \n".format(DMS_id)+"#"*100)
@@ -255,7 +260,7 @@ training_run_parameters = "--data_location {} \
         args.fold_variable_name,
         args.target_config_location,
         zero_shot_scores_folder,
-        args.sequence_embeddings_folder + os.sep + model_config['aa_embeddings'],
+        args.sequence_embeddings_folder,
         args.MSA_location,
         weight_file_name,
         args.target_seq,

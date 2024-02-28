@@ -321,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument('--fold_variable_name', default=None, type=str, help='Name of the fold variable in the processed assay files')
     parser.add_argument('--test_fold_index', default=-1, type=int, help='Index of fold to test performance on [If "-1" is provided, we will train on all seed splits sequentially]')
     parser.add_argument('--use_validation_set', action='store_true', help='Whether to use a validation set during training [If yes, we will stop training based on CV loss and patience param. Train until the end otherwise]')
-    parser.add_argument('--num_data_loaders_workers', default=5, type=int, help='Number of workers to use to fetch and load data in memory')
+    parser.add_argument('--num_data_loaders_workers', default=0, type=int, help='Number of workers to use to fetch and load data in memory')
     parser.add_argument('--MSA_data_folder', default=None, type=str, help='Folder all MSAs are stored for reference sequence of ProteinGym assays')
     parser.add_argument('--MSA_weight_data_folder', default=None, type=str, help='Folder where MSA sequence weights are stored (for diversity sampling of MSA)')
     parser.add_argument('--path_to_hhfilter', default=None, type=str, help='Path to hhfilter (for filtering MSA)')
@@ -385,10 +385,10 @@ if __name__ == "__main__":
     setup_config_and_paths(args)
     print(args.embedding_model_location)
 
-    if (args.MSA_location is not None) and ((args.MSA_start is None) or (args.MSA_end is None)):
-        print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+    if (args.MSA_start is None) or (args.MSA_end is None):
+        if args.MSA_location is not None: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
         args.MSA_start = 1
-        args.MSA_end = len(args.target_seq)
+        if args.target_seq: args.MSA_end = len(args.target_seq)
         
     if args.test_fold_index==-1:
         target_names = [x for x in args.target_config.keys() if args.target_config[x]["in_NPT_loss"]]

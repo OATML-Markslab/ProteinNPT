@@ -178,9 +178,7 @@ if __name__ == "__main__":
 
     # Path to the output file for storing embeddings and original sequences
     if not os.path.exists(args.output_data_location): os.mkdir(args.output_data_location)
-    output_embeddings_path = args.output_data_location + os.sep + args.model_type
-    if not os.path.exists(output_embeddings_path): os.mkdir(output_embeddings_path)
-    output_embeddings_path = output_embeddings_path + os.sep + assay_file_name.split(".csv")[0] + '.h5'
+    output_embeddings_path = args.output_data_location + os.sep + assay_file_name.split(".csv")[0] + '.h5'
 
     if args.model_type=="MSA_Transformer":
         MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] if args.assay_reference_file_location is not None else args.MSA_filename

@@ -906,10 +906,19 @@ class TranceptionLMHeadModel(GPT2PreTrainedModel):
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='Z', char_replacements='EQ')
         return self.config.tokenizer(list(protein_sequence[sequence_name]), add_special_tokens=True, truncation=True, padding=True, max_length=self.config.n_ctx)
 
-def get_tranception_tokenizer():
+def get_tranception_tokenizer(tokenizer_path=None):
     #Tranception Alphabet: "vocab":{"[UNK]":0,"[CLS]":1,"[SEP]":2,"[PAD]":3,"[MASK]":4,"A":5,"C":6,"D":7,"E":8,"F":9,"G":10,"H":11,"I":12,"K":13,"L":14,"M":15,"N":16,"P":17,"Q":18,"R":19,"S":20,"T":21,"V":22,"W":23,"Y":24}
-    dir_path = os.path.dirname(os.path.abspath(__file__))
-    tokenizer = PreTrainedTokenizerFast(tokenizer_file=dir_path + os.sep + "utils/tokenizers/Basic_tokenizer", unk_token="[UNK]", sep_token="[SEP]", pad_token="[PAD]", cls_token="[CLS]",mask_token="[MASK]")
+    if tokenizer_path is None:
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        tokenizer_path = os.path.join(dir_path, "utils", "tokenizers", "Basic_tokenizer")
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_file=tokenizer_path, 
+        unk_token="[UNK]", 
+        sep_token="[SEP]", 
+        pad_token="[PAD]", 
+        cls_token="[CLS]",
+        mask_token="[MASK]"
+    )
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     tokenizer.tok_to_idx = tokenizer.vocab
     tokenizer.padding_idx = tokenizer.tok_to_idx["[PAD]"]

@@ -55,9 +55,6 @@ def get_train_val_test_data(args, assay_file_names):
     
     for target_name in target_names:
         if target_name!=main_target_name:
-            print(target_name)
-            print(args.target_config)
-            print(assay_file_names)
             assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name])[['mutant',args.target_config[target_name]["var_name"]]] 
             assay_data[target_name].columns = ['mutant',target_name]
             merge = pd.merge(merge, assay_data[target_name], how='left', on='mutant')
