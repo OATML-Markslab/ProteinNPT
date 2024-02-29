@@ -67,7 +67,7 @@ print("Training {} model on the {} assay".format(model_name,DMS_id))
 assay_data = pd.read_csv(args.assay_data_location,low_memory=False)
 assert "mutant" in assay_data.columns or "mutated_sequence" in assay_data.columns, "Could not find mutant nor mutated_sequence columns in assay file"
 if "mutated_sequence" not in assay_data.columns:
-    assay_data["mutated_sequence"] = assay_data['mutant'].apply(lambda x: scoring_utils.get_mutated_sequence(args.target_seq, x))
+    assay_data["mutated_sequence"] = assay_data['mutant'].apply(lambda x: get_mutated_sequence(args.target_seq, x))
 if "mutant" not in assay_data.columns:
     assay_data['mutant'] = assay_data.index.apply(lambda x: "mutant_" + str(x))
 if args.fold_variable_name not in assay_data.columns:
@@ -90,7 +90,7 @@ if not os.path.exists(embeddings_location) and model_config['aa_embeddings']!="O
                 use_weights=True,
                 weights_location=MSA_sequence_weights_location
         )
-    #Embeddings computation
+    # Embeddings computation  # TODO(Lood): Change this to call the function directly
     embeddings_run_parameters = "--model_type {} \
     --model_location {} \
     --input_data_location {} \

@@ -2,3 +2,13 @@
 slurm
 archives
 output
+proteinnpt.egg-info
+ProteinNPT_data/
+# DMS files
+*.csv
+# Alignments
+*.a2m
+# Weights
+*.npy
+# Reference files
+!proteinnpt/*.csv  
