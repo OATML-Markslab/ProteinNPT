@@ -1,7 +1,6 @@
-export proteinnpt_data_path="Replace this string with the path to the folder where you downloaded the core ProteinNPT files (ProteinNPT_data.zip)"
-export proteinnpt_repo_path="Replace this string with the path to the root of your local copy of the ProteinNPT folder"
-source activate proteinnpt_env
-#source $proteinnpt_data_path/proteinnpt_env/bin/activate #Uncomment if using python venv instead of conda
+source config.sh  # To get $proteinnpt_data_path
+conda activate proteinnpt_env
+#source $proteinnpt_data_path/proteinnpt_env/bin/activate # Uncomment if using python venv instead of conda
 
 export assay_data_location="Replace this string with the path to the assay data"
 export MSA_location="Replace this string with the path to the MSA data"

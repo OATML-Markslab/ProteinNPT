@@ -178,6 +178,8 @@ class MSA_processing:
 
         print ("Neff =",str(self.Neff))
         print ("Data Shape =",self.one_hot_encoding.shape)
+        print("Tmp Lood: weights shape:", self.weights.shape)
+        assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
 
 def filter_msa(filename, path_to_hhfilter, hhfilter_min_cov=75, hhfilter_max_seq_id=90, hhfilter_min_seq_id=0):
     """
@@ -247,9 +249,12 @@ def weighted_sample_MSA(MSA_all_sequences, MSA_non_ref_sequences_weights, number
     msa = [(desc, seq.upper()) for desc, seq in msa]
     return msa
 
-def process_MSA(args, MSA_filename, MSA_weights_filename):
-    filtered_MSA_filename = filter_msa(filename = args.MSA_data_folder + os.sep + MSA_filename, path_to_hhfilter = args.path_to_hhfilter)
-    MSA_all_sequences, MSA_non_ref_sequences_weights = compute_sequence_weights(MSA_filename = filtered_MSA_filename, MSA_weights_filename = args.MSA_weight_data_folder + os.sep + MSA_weights_filename)
+def process_MSA(MSA_data_folder, MSA_weight_data_folder, MSA_filename, MSA_weights_filename, path_to_hhfilter):
+    """
+    Filter an MSA according to sequence identity (for e.g. MSATransformer) and then compute sequence weights
+    """
+    filtered_MSA_filename = filter_msa(filename=MSA_data_folder + os.sep + MSA_filename, path_to_hhfilter=path_to_hhfilter)
+    MSA_all_sequences, MSA_non_ref_sequences_weights = compute_sequence_weights(MSA_filename=filtered_MSA_filename, MSA_weights_filename=os.path.join(MSA_weight_data_folder, "hhfiltered", MSA_weights_filename))
     return MSA_all_sequences, MSA_non_ref_sequences_weights
 
 def align_new_sequences_to_msa(MSA_sequences, new_sequences, new_mutants, clustalomega_path):

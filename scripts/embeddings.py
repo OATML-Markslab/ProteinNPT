@@ -100,7 +100,270 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
         processed_batch = batch
     return processed_batch
 
-if __name__ == "__main__":
+def main(
+    assay_reference_file_location=None,
+    assay_index=0,
+    input_data_location=None,
+    output_data_location=None,
+    model_type='Tranception',
+    model_location=None,
+    max_positions=1024,
+    long_sequences_slicing_method='center',
+    batch_size=32,
+    indel_mode=False,
+    half_precision=False,
+    num_MSA_sequences=1000,
+    MSA_data_folder=None,
+    MSA_weight_data_folder=None,
+    path_to_hhfilter=None,
+    path_to_clustalomega=None,
+    fast_MSA_mode=False,
+    target_seq=None,
+    MSA_location=None,
+    weight_file_name=None,
+    MSA_start=None,
+    MSA_end=None
+    ):
+    
+    assert (indel_mode and not fast_MSA_mode and batch_size==1) or (fast_MSA_mode and model_type=="MSA_Transformer") or (not indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
+
+    # Path to the input CSV file
+    if assay_reference_file_location is not None:
+        assay_reference_file = pd.read_csv(assay_reference_file_location)
+        assay_id=assay_reference_file["DMS_id"][assay_index]
+        assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
+        input_data_location = input_data_location + os.sep + assay_file_name
+        target_seq = assay_reference_file["target_seq"][assay_reference_file["DMS_id"]==assay_id].values[0]
+    else:
+        assert target_seq is not None, "Reference file provided and target_seq not provided"
+        assay_id = input_data_location.split(".csv")[0].split(os.sep)[-1]
+        assay_file_name = input_data_location.split(os.sep)[-1]
+        target_seq = target_seq
+        if MSA_location:
+            MSA_filename = MSA_location.split(os.sep)[-1]
+            MSA_data_folder = os.sep.join(MSA_location.split(os.sep)[:-1])
+        if (MSA_start is None) or (MSA_end is None): 
+            if MSA_data_folder: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+            MSA_start = 1
+            MSA_end = len(target_seq)
+
+    print("Assay: {}".format(assay_file_name))
+
+    # Load the PyTorch model from the checkpoint
+    if model_type in ["MSA_Transformer","ESM1v"]:
+        alphabet = Alphabet.from_architecture("msa_transformer")
+        alphabet_size = len(alphabet)
+        model, _ = load_model_and_alphabet(model_location)
+        model.MSA_sample_sequences=None
+    elif model_type=="Tranception":
+        config = json.load(open(model_location+os.sep+'config.json'))
+        config = TranceptionConfig(**config)
+        config.tokenizer = get_tranception_tokenizer()
+        config.full_target_seq = target_seq
+        config.inference_time_retrieval_type = None
+        config.retrieval_aggregation_mode = None
+        alphabet = None # Only used in process_embeddings_batch for ESM models
+        model = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=model_location,config=config)
+
+    # Set the model to evaluation mode & move to cuda
+    model.eval()
+    model.cuda()
+    #DMS file
+    df = pd.read_csv(input_data_location)
+    if 'mutated_sequence' not in df: df['mutated_sequence'] = df['mutant'] # May happen on indel assays
+    df = df[['mutant','mutated_sequence']]
+
+    # Path to the output file for storing embeddings and original sequences
+    if not os.path.exists(output_data_location): os.mkdir(output_data_location)
+    output_embeddings_path = output_data_location + os.sep + assay_file_name.split(".csv")[0] + '.h5'
+
+    if model_type=="MSA_Transformer":
+        MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] if assay_reference_file_location is not None else MSA_filename
+        MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0] if assay_reference_file_location is not None else weight_file_name
+        MSA_sequences, MSA_weights = process_MSA(MSA_data_folder=MSA_data_folder, MSA_weight_data_folder=MSA_weight_data_folder, MSA_filename=MSA_filename, MSA_weights_filename=MSA_weights_filename, path_to_hhfilter=path_to_hhfilter)
+        MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0]) if assay_reference_file_location is not None else MSA_start
+        MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0]) if assay_reference_file_location is not None else MSA_end
+    else:
+        MSA_sequences = None
+        MSA_weights = None
+        MSA_start_position = None
+        MSA_end_position = None
+
+    # Create empty lists to store the embeddings and original sequences
+    embeddings_list = []
+    pseudo_likelihood_list = []
+    sequences_list = []
+    mutants_list = []
+
+    # Create a data loader to iterate over the input sequences. 
+    # For ESM models (MSA Transformer in particular), the bulk of the work is done within process_embeddings_batch
+    # For Tranception, utils for slicing already exist so we directly process & tokenize sequences below
+    if model_type in ["MSA_Transformer","ESM1v"]:
+        dataset_dict = {}
+        dataset_dict['mutant_mutated_seq_pairs'] = list(zip(list(df['mutant']),list(df['mutated_sequence'])))
+        dataset = Dataset.from_dict(dataset_dict)
+        dataloader = DataLoader(
+                        dataset=dataset, 
+                        batch_size=batch_size, 
+                        shuffle=False,
+                        num_workers=0, 
+                        pin_memory=True,
+                        collate_fn=collate_fn_protein_npt
+                    )
+    elif model_type=="Tranception":
+        sliced_df = get_sequence_slices(df, 
+            target_seq=target_seq, 
+            model_context_len = model.config.n_ctx - 2, 
+            indel_mode=indel_mode, 
+            scoring_window="optimal"
+        )
+        mutant_index=0
+        ds = Dataset.from_pandas(sliced_df)
+        ds.set_transform(model.encode_batch)
+        data_collator = DataCollatorForLanguageModeling(
+                            tokenizer=model.config.tokenizer,
+                            mlm=False)
+        sampler = SequentialSampler(ds)
+        dataloader = torch.utils.data.DataLoader(
+            ds, 
+            batch_size=batch_size, 
+            sampler=sampler, 
+            collate_fn=data_collator, 
+            num_workers=0, 
+            pin_memory=True, 
+            drop_last=False
+        )
+
+    # Loop over the batches of sequences in the input file
+    with torch.no_grad():
+        if fast_MSA_mode:
+            model.MSA_sample_sequences = weighted_sample_MSA(
+                        MSA_all_sequences=MSA_sequences, 
+                        MSA_non_ref_sequences_weights=MSA_weights, 
+                        number_sampled_MSA_sequences=num_MSA_sequences
+                    )
+            fast_MSA_short_names_mapping = {}
+            fast_MSA_short_names = []
+            print("There are {} sequences to score".format(len(df['mutated_sequence'])))
+            for seq_index,seq in enumerate(list(df['mutated_sequence'])):
+                short_name = 'mutant_to_score_'+str(seq_index)
+                fast_MSA_short_names_mapping[seq] = short_name
+                fast_MSA_short_names.append(short_name)
+            fast_MSA_aligned_sequences = align_new_sequences_to_msa(model.MSA_sample_sequences, list(df['mutated_sequence']), fast_MSA_short_names, clustalomega_path=path_to_clustalomega)
+            model.MSA_sample_sequences = [tup for tup in fast_MSA_aligned_sequences if tup[0] not in set(fast_MSA_short_names)]
+        else:
+            fast_MSA_aligned_sequences = None
+            fast_MSA_short_names_mapping = None
+        
+        for batch in tqdm.tqdm(dataloader, desc="Embedding sequences", total=len(dataloader)):
+            processed_batch = process_embeddings_batch(
+                                batch = batch,
+                                model = model,
+                                model_type = model_type,
+                                alphabet = alphabet, 
+                                MSA_sequences = MSA_sequences, 
+                                MSA_weights = MSA_weights,
+                                MSA_start_position = MSA_start_position, 
+                                MSA_end_position = MSA_end_position,
+                                num_MSA_sequences = num_MSA_sequences,
+                                device = next(model.parameters()).device,
+                                eval_mode=True,
+                                indel_mode=indel_mode,
+                                fast_MSA_mode=fast_MSA_mode,
+                                fast_MSA_aligned_sequences=fast_MSA_aligned_sequences,
+                                fast_MSA_short_names_mapping=fast_MSA_short_names_mapping,
+                                clustalomega_path=path_to_clustalomega
+                            )
+            if model_type=="MSA_Transformer":
+                tokens = processed_batch['input_tokens']
+                assert tokens.ndim == 3, "Finding dimension of tokens to be: {}".format(tokens.ndim)
+                num_MSAs_in_batch, num_sequences_in_alignments, seqlen = tokens.size()
+                batch_size = num_MSAs_in_batch
+                output = model(tokens, repr_layers=[12])
+                embeddings = output["representations"][12][:] # B, N, L, D
+                if fast_MSA_mode: # A single batch with multiple sequences to score in it to speed things up
+                    embeddings = embeddings[:,:batch_size,:,:] # 1, N, L, D 
+                    embeddings = [embeddings[:,i,:,:] for i in range(batch_size)]
+                    logits = output["logits"][:,:batch_size].view(batch_size,-1,alphabet_size)
+                    tokens = tokens[:,:batch_size].view(batch_size,-1)
+                    pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.reshape(-1, alphabet_size), tokens.reshape(-1)).view(batch_size, seqlen)
+                    pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1)
+                    batch['mutant_mutated_seq_pairs'] = batch['mutant_mutated_seq_pairs'][0][:batch_size]
+                else:
+                    embeddings = embeddings[:,0,:,:] # In each MSA batch the first sequence is what we care about. The other MSA sequences were present just to compute embeddings and logits
+                    logits = output["logits"][:,0] # Filtering logits of points to score
+                    tokens = tokens[:,0] # Filtering tokens of points to score
+                    pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.reshape(-1, alphabet_size), tokens.reshape(-1)).view(num_MSAs_in_batch, seqlen)
+                    pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1) #Average across sequence length
+                    batch['mutant_mutated_seq_pairs'] = [seq[0] for seq in batch['mutant_mutated_seq_pairs']] # Remove MSA sequences from batch by selecting the first sequence in each MSA input sets
+                mutant, sequence = zip(*batch['mutant_mutated_seq_pairs'])
+            elif model_type == "ESM1v":
+                tokens = processed_batch['input_tokens']
+                assert tokens.ndim == 2, "Finding dimension of tokens to be: {}".format(tokens.ndim)
+                batch_size, seqlen = tokens.size()
+                last_layer_index = 33
+                output = model(tokens, repr_layers=[last_layer_index])
+                embeddings = output["representations"][last_layer_index][:] # N, L, D
+                logits = output["logits"]
+                pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.view(-1, alphabet_size), tokens.view(-1)).view(batch_size, seqlen)
+                pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1)
+                mutant, sequence = zip(*batch['mutant_mutated_seq_pairs'])
+            elif model_type=="Tranception":
+                output = model(**processed_batch, return_dict=True, output_hidden_states=True)
+                embeddings = output.hidden_states[-1] # Extract embeddings from last layer
+                logits = output.logits
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = processed_batch['labels'][..., 1:].contiguous()
+                pseudo_ppx = - CrossEntropyLoss(reduction='none')(input=shift_logits.view(-1, shift_logits.size(-1)), target=shift_labels.view(-1)).view(shift_logits.shape[0],shift_logits.shape[1])
+                pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1) # Shape (B,)
+                full_batch_length = len(processed_batch['input_ids'])
+                sequence = np.array(df['mutated_sequence'][mutant_index:mutant_index+full_batch_length])
+                mutant = np.array(df['mutant'][mutant_index:mutant_index+full_batch_length])
+                mutant_index+=full_batch_length
+
+            # Add the embeddings and original sequences to the corresponding lists
+            pseudo_ppx = [pppx.cpu().item() for pppx in pseudo_ppx]
+            pseudo_likelihood_list += pseudo_ppx
+            assert len(embeddings.shape)==3, "Embedding tensor is not of proper size (batch_size,seq_len,embedding_dim)"
+            B,L,D=embeddings.shape
+            embeddings = [embedding.view(1,L,D).cpu() for embedding in embeddings]
+            if half_precision: embeddings = [embedding.half() for embedding in embeddings]
+            embeddings_list += embeddings
+            sequences_list.append(list(sequence))
+            mutants_list.append(list(mutant))
+
+    # Concatenate the embeddings 
+    if indel_mode:
+        embedding_len_set = set([seq.size(1) for seq in embeddings_list])
+        num_embeddings = len(embeddings_list)
+        max_seq_length = max(embedding_len_set)
+        embedding_dim = embeddings_list[0].shape[-1] # embeddings_list is a list of embeddings, each of them of shape (1,seq_len,embedding_dim)
+        embeddings = torch.zeros(num_embeddings,max_seq_length,embedding_dim)
+        if half_precision: embeddings = embeddings.half()
+        for emb_index, embedding in enumerate(embeddings_list):
+            assert len(embedding.shape)==3, "embedding index {} is of incorrect size: {}".format(emb_index, embedding.shape)
+            embedding_len = embedding.shape[1]
+            embeddings[emb_index,:embedding_len] = embedding
+    else:
+        embeddings = torch.cat(embeddings_list, dim=0)
+    assert len(embeddings.shape)==3, "Embedding tensor is not of proper size (num_mutated_seqs,seq_len,embedding_dim)"
+    pseudo_likelihoods = torch.tensor(pseudo_likelihood_list)
+    sequences = sum(sequences_list, []) # Flatten the list if needed
+    mutants = sum(mutants_list, []) # Flatten the list if needed
+
+    embeddings_dict = {
+        'embeddings': embeddings,
+        'pseudo_likelihoods': pseudo_likelihoods,
+        'sequences': sequences,
+        'mutants': mutants
+    }
+
+    # Store data as HDF5
+    with h5py.File(output_embeddings_path, 'w') as h5f:
+        for key, value in embeddings_dict.items():
+            h5f.create_dataset(key, data=value)
+
+def parse_arguments():
     parser = argparse.ArgumentParser(description='Extract embeddings')
     parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
     parser.add_argument('--assay_index', default=0, type=int, help='Index of assay in the ProteinGym reference file to compute embeddings for')
@@ -126,242 +389,31 @@ if __name__ == "__main__":
     parser.add_argument('--weight_file_name', default=None, type=str, help='Name of weight file')
     parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    assert (args.indel_mode and not args.fast_MSA_mode and args.batch_size==1) or (args.fast_MSA_mode and args.model_type=="MSA_Transformer") or (not args.indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
 
-    # Path to the input CSV file
-    if args.assay_reference_file_location is not None:
-        assay_reference_file = pd.read_csv(args.assay_reference_file_location)
-        assay_id=assay_reference_file["DMS_id"][args.assay_index]
-        assay_file_name = assay_reference_file["DMS_filename"][assay_reference_file["DMS_id"]==assay_id].values[0]
-        args.input_data_location = args.input_data_location + os.sep + assay_file_name
-        target_seq = assay_reference_file["target_seq"][assay_reference_file["DMS_id"]==assay_id].values[0]
-    else:
-        assert args.target_seq is not None, "Reference file provided and target_seq not provided"
-        assay_id = args.input_data_location.split(".csv")[0].split(os.sep)[-1]
-        assay_file_name = args.input_data_location.split(os.sep)[-1]
-        target_seq = args.target_seq
-        if args.MSA_location:
-            args.MSA_filename = args.MSA_location.split(os.sep)[-1]
-            args.MSA_data_folder = os.sep.join(args.MSA_location.split(os.sep)[:-1])
-        if (args.MSA_start is None) or (args.MSA_end is None): 
-            if args.MSA_data_folder: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
-            args.MSA_start = 1
-            args.MSA_end = len(args.target_seq)
-
-    print("Assay: {}".format(assay_file_name))
-
-    # Load the PyTorch model from the checkpoint
-    if args.model_type in ["MSA_Transformer","ESM1v"]:
-        alphabet = Alphabet.from_architecture("msa_transformer")
-        alphabet_size = len(alphabet)
-        model, _ = load_model_and_alphabet(args.model_location)
-        model.MSA_sample_sequences=None
-    elif args.model_type=="Tranception":
-        config = json.load(open(args.model_location+os.sep+'config.json'))
-        config = TranceptionConfig(**config)
-        config.tokenizer = get_tranception_tokenizer()
-        config.full_target_seq = target_seq
-        config.inference_time_retrieval_type = None
-        config.retrieval_aggregation_mode = None
-        alphabet = None # Only used in process_embeddings_batch for ESM models
-        model = TranceptionLMHeadModel.from_pretrained(pretrained_model_name_or_path=args.model_location,config=config)
-
-    # Set the model to evaluation mode & move to cuda
-    model.eval()
-    model.cuda()
-    #DMS file
-    df = pd.read_csv(args.input_data_location)
-    if 'mutated_sequence' not in df: df['mutated_sequence'] = df['mutant'] # May happen on indel assays
-    df = df[['mutant','mutated_sequence']]
-
-    # Path to the output file for storing embeddings and original sequences
-    if not os.path.exists(args.output_data_location): os.mkdir(args.output_data_location)
-    output_embeddings_path = args.output_data_location + os.sep + assay_file_name.split(".csv")[0] + '.h5'
-
-    if args.model_type=="MSA_Transformer":
-        MSA_filename = assay_reference_file["MSA_filename"][assay_reference_file["DMS_id"]==assay_id].values[0] if args.assay_reference_file_location is not None else args.MSA_filename
-        MSA_weights_filename = assay_reference_file["weight_file_name"][assay_reference_file["DMS_id"]==assay_id].values[0] if args.assay_reference_file_location is not None else args.weight_file_name
-        MSA_sequences, MSA_weights = process_MSA(args, MSA_filename, MSA_weights_filename)
-        MSA_start_position = int(assay_reference_file["MSA_start"][assay_reference_file["DMS_id"]==assay_id].values[0]) if args.assay_reference_file_location is not None else args.MSA_start
-        MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0]) if args.assay_reference_file_location is not None else args.MSA_end
-    else:
-        MSA_sequences = None
-        MSA_weights = None
-        MSA_start_position = None
-        MSA_end_position = None
-
-    # Create empty lists to store the embeddings and original sequences
-    embeddings_list = []
-    pseudo_likelihood_list = []
-    sequences_list = []
-    mutants_list = []
-
-    # Create a data loader to iterate over the input sequences. 
-    # For ESM models (MSA Transformer in particular), the bulk of the work is done within process_embeddings_batch
-    # For Tranception, utils for slicing already exist so we directly process & tokenize sequences below
-    if args.model_type in ["MSA_Transformer","ESM1v"]:
-        dataset_dict = {}
-        dataset_dict['mutant_mutated_seq_pairs'] = list(zip(list(df['mutant']),list(df['mutated_sequence'])))
-        dataset = Dataset.from_dict(dataset_dict)
-        dataloader = DataLoader(
-                        dataset=dataset, 
-                        batch_size=args.batch_size, 
-                        shuffle=False,
-                        num_workers=0, 
-                        pin_memory=True,
-                        collate_fn=collate_fn_protein_npt
-                    )
-    elif args.model_type=="Tranception":
-        sliced_df = get_sequence_slices(df, 
-            target_seq=target_seq, 
-            model_context_len = model.config.n_ctx - 2, 
-            indel_mode=args.indel_mode, 
-            scoring_window="optimal"
-        )
-        mutant_index=0
-        ds = Dataset.from_pandas(sliced_df)
-        ds.set_transform(model.encode_batch)
-        data_collator = DataCollatorForLanguageModeling(
-                            tokenizer=model.config.tokenizer,
-                            mlm=False)
-        sampler = SequentialSampler(ds)
-        dataloader = torch.utils.data.DataLoader(
-            ds, 
-            batch_size=args.batch_size, 
-            sampler=sampler, 
-            collate_fn=data_collator, 
-            num_workers=0, 
-            pin_memory=True, 
-            drop_last=False
-        )
-
-    # Loop over the batches of sequences in the input file
-    with torch.no_grad():
-        if args.fast_MSA_mode:
-            model.MSA_sample_sequences = weighted_sample_MSA(
-                        MSA_all_sequences=MSA_sequences, 
-                        MSA_non_ref_sequences_weights=MSA_weights, 
-                        number_sampled_MSA_sequences=args.num_MSA_sequences
-                    )
-            fast_MSA_short_names_mapping = {}
-            fast_MSA_short_names = []
-            print("There are {} sequences to score".format(len(df['mutated_sequence'])))
-            for seq_index,seq in enumerate(list(df['mutated_sequence'])):
-                short_name = 'mutant_to_score_'+str(seq_index)
-                fast_MSA_short_names_mapping[seq] = short_name
-                fast_MSA_short_names.append(short_name)
-            fast_MSA_aligned_sequences = align_new_sequences_to_msa(model.MSA_sample_sequences, list(df['mutated_sequence']), fast_MSA_short_names, clustalomega_path=args.path_to_clustalomega)
-            model.MSA_sample_sequences = [tup for tup in fast_MSA_aligned_sequences if tup[0] not in set(fast_MSA_short_names)]
-        else:
-            fast_MSA_aligned_sequences = None
-            fast_MSA_short_names_mapping = None
-        
-        for batch in tqdm.tqdm(dataloader):
-            processed_batch = process_embeddings_batch(
-                                batch = batch,
-                                model = model,
-                                model_type = args.model_type,
-                                alphabet = alphabet, 
-                                MSA_sequences = MSA_sequences, 
-                                MSA_weights = MSA_weights,
-                                MSA_start_position = MSA_start_position, 
-                                MSA_end_position = MSA_end_position,
-                                num_MSA_sequences = args.num_MSA_sequences,
-                                device = next(model.parameters()).device,
-                                eval_mode=True,
-                                indel_mode=args.indel_mode,
-                                fast_MSA_mode=args.fast_MSA_mode,
-                                fast_MSA_aligned_sequences=fast_MSA_aligned_sequences,
-                                fast_MSA_short_names_mapping=fast_MSA_short_names_mapping,
-                                clustalomega_path=args.path_to_clustalomega
-                            )
-            if args.model_type=="MSA_Transformer":
-                tokens = processed_batch['input_tokens']
-                assert tokens.ndim == 3, "Finding dimension of tokens to be: {}".format(tokens.ndim)
-                num_MSAs_in_batch, num_sequences_in_alignments, seqlen = tokens.size()
-                batch_size = num_MSAs_in_batch
-                output = model(tokens, repr_layers=[12])
-                embeddings = output["representations"][12][:] # B, N, L, D
-                if args.fast_MSA_mode: # A single batch with multiple sequences to score in it to speed things up
-                    embeddings = embeddings[:,:args.batch_size,:,:] # 1, N, L, D 
-                    embeddings = [embeddings[:,i,:,:] for i in range(args.batch_size)]
-                    logits = output["logits"][:,:args.batch_size].view(args.batch_size,-1,alphabet_size)
-                    tokens = tokens[:,:args.batch_size].view(args.batch_size,-1)
-                    pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.reshape(-1, alphabet_size), tokens.reshape(-1)).view(args.batch_size, seqlen)
-                    pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1)
-                    batch['mutant_mutated_seq_pairs'] = batch['mutant_mutated_seq_pairs'][0][:args.batch_size]
-                else:
-                    embeddings = embeddings[:,0,:,:] # In each MSA batch the first sequence is what we care about. The other MSA sequences were present just to compute embeddings and logits
-                    logits = output["logits"][:,0] # Filtering logits of points to score
-                    tokens = tokens[:,0] # Filtering tokens of points to score
-                    pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.reshape(-1, alphabet_size), tokens.reshape(-1)).view(num_MSAs_in_batch, seqlen)
-                    pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1) #Average across sequence length
-                    batch['mutant_mutated_seq_pairs'] = [seq[0] for seq in batch['mutant_mutated_seq_pairs']] # Remove MSA sequences from batch by selecting the first sequence in each MSA input sets
-                mutant, sequence = zip(*batch['mutant_mutated_seq_pairs'])
-            elif args.model_type == "ESM1v":
-                tokens = processed_batch['input_tokens']
-                assert tokens.ndim == 2, "Finding dimension of tokens to be: {}".format(tokens.ndim)
-                batch_size, seqlen = tokens.size()
-                last_layer_index = 33
-                output = model(tokens, repr_layers=[last_layer_index])
-                embeddings = output["representations"][last_layer_index][:] # N, L, D
-                logits = output["logits"]
-                pseudo_ppx = - CrossEntropyLoss(reduction='none', label_smoothing=0.0)(logits.view(-1, alphabet_size), tokens.view(-1)).view(batch_size, seqlen)
-                pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1)
-                mutant, sequence = zip(*batch['mutant_mutated_seq_pairs'])
-            elif args.model_type=="Tranception":
-                output = model(**processed_batch, return_dict=True, output_hidden_states=True)
-                embeddings = output.hidden_states[-1] # Extract embeddings from last layer
-                logits = output.logits
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = processed_batch['labels'][..., 1:].contiguous()
-                pseudo_ppx = - CrossEntropyLoss(reduction='none')(input=shift_logits.view(-1, shift_logits.size(-1)), target=shift_labels.view(-1)).view(shift_logits.shape[0],shift_logits.shape[1])
-                pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1) # Shape (B,)
-                full_batch_length = len(processed_batch['input_ids'])
-                sequence = np.array(df['mutated_sequence'][mutant_index:mutant_index+full_batch_length])
-                mutant = np.array(df['mutant'][mutant_index:mutant_index+full_batch_length])
-                mutant_index+=full_batch_length
-
-            # Add the embeddings and original sequences to the corresponding lists
-            pseudo_ppx = [pppx.cpu().item() for pppx in pseudo_ppx]
-            pseudo_likelihood_list += pseudo_ppx
-            assert len(embeddings.shape)==3, "Embedding tensor is not of proper size (batch_size,seq_len,embedding_dim)"
-            B,L,D=embeddings.shape
-            embeddings = [embedding.view(1,L,D).cpu() for embedding in embeddings]
-            if args.half_precision: embeddings = [embedding.half() for embedding in embeddings]
-            embeddings_list += embeddings
-            sequences_list.append(list(sequence))
-            mutants_list.append(list(mutant))
-
-    # Concatenate the embeddings 
-    if args.indel_mode:
-        embedding_len_set = set([seq.size(1) for seq in embeddings_list])
-        num_embeddings = len(embeddings_list)
-        max_seq_length = max(embedding_len_set)
-        embedding_dim = embeddings_list[0].shape[-1] # embeddings_list is a list of embeddings, each of them of shape (1,seq_len,embedding_dim)
-        embeddings = torch.zeros(num_embeddings,max_seq_length,embedding_dim)
-        if args.half_precision: embeddings = embeddings.half()
-        for emb_index, embedding in enumerate(embeddings_list):
-            assert len(embedding.shape)==3, "embedding index {} is of incorrect size: {}".format(emb_index, embedding.shape)
-            embedding_len = embedding.shape[1]
-            embeddings[emb_index,:embedding_len] = embedding
-    else:
-        embeddings = torch.cat(embeddings_list, dim=0)
-    assert len(embeddings.shape)==3, "Embedding tensor is not of proper size (num_mutated_seqs,seq_len,embedding_dim)"
-    pseudo_likelihoods = torch.tensor(pseudo_likelihood_list)
-    sequences = sum(sequences_list, []) # Flatten the list if needed
-    mutants = sum(mutants_list, []) # Flatten the list if needed
-
-    embeddings_dict = {
-        'embeddings': embeddings,
-        'pseudo_likelihoods': pseudo_likelihoods,
-        'sequences': sequences,
-        'mutants': mutants
-    }
-
-    # Store data as HDF5
-    with h5py.File(output_embeddings_path, 'w') as h5f:
-        for key, value in embeddings_dict.items():
-            h5f.create_dataset(key, data=value)
+if __name__ == "__main__":
+    args = parse_arguments()
+    main(
+        assay_reference_file_location=args.assay_reference_file_location,
+        assay_index=args.assay_index,
+        input_data_location=args.input_data_location,
+        output_data_location=args.output_data_location,
+        model_type=args.model_type,
+        model_location=args.model_location,
+        max_positions=args.max_positions,
+        long_sequences_slicing_method=args.long_sequences_slicing_method,
+        batch_size=args.batch_size,
+        indel_mode=args.indel_mode,
+        half_precision=args.half_precision,
+        #MSA specific parameters
+        num_MSA_sequences=args.num_MSA_sequences,
+        MSA_data_folder=args.MSA_data_folder,
+        MSA_weight_data_folder=args.MSA_weight_data_folder,
+        path_to_hhfilter=args.path_to_hhfilter,
+        path_to_clustalomega=args.path_to_clustalomega,
+        fast_MSA_mode=args.fast_MSA_mode,
+        #If not using a reference file
+        target_seq=args.target_seq,
+        MSA_location=args.MSA_location,
+    )
