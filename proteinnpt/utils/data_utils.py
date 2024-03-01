@@ -57,13 +57,13 @@ def get_train_val_test_data(args, assay_file_names):
         if target_name!=main_target_name:
             assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name])[['mutant',args.target_config[target_name]["var_name"]]] 
             assay_data[target_name].columns = ['mutant',target_name]
-            merge = pd.merge(merge, assay_data[target_name], how='left', on='mutant')
+            merge = pd.merge(merge, assay_data[target_name], how='outer', on='mutant')
             
     if args.augmentation=="zero_shot_fitness_predictions_covariate":
         zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])[['mutant',args.zero_shot_fitness_predictions_var_name]]
         zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
         zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
-        merge = pd.merge(merge,zero_shot_fitness_predictions,how='inner',on='mutant')
+        merge = pd.merge(merge,zero_shot_fitness_predictions,how='left',on='mutant')
 
     train_val_test_splits = split_data_based_on_test_fold_index(
         dataframe = merge, 
@@ -112,7 +112,7 @@ def preprocess_training_targets(training_targets, target_config):
         else:
             # One-hot encoding
             target_processing[target_name]={}
-            unique_categories = torch.unique(training_targets[target_name])
+            unique_categories = training_targets[target_name].unique()
             assert target_config[target_name]["dim"]==len(unique_categories), "list_dim_input_targets not properly referenced for target indexed: {}".format(target_name)
             category_to_index = dict((c, i) for i, c in enumerate(unique_categories))
             index_to_category = dict((i, c) for i, c in enumerate(unique_categories))
