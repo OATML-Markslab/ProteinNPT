@@ -231,14 +231,14 @@ def label_row(row, sequence, token_probs, alphabet, offset_idx):
         score += (token_probs[0, 1 + idx, mt_encoded] - token_probs[0, 1 + idx, wt_encoded]).item()
     return score
 
-
-def compute_pppl(row, sequence, model, alphabet, offset_idx):
+def get_mutated_sequence(row, wt_sequence, offset_idx):
     wt, idx, mt = row[0], int(row[1:-1]) - offset_idx, row[-1]
-    assert sequence[idx] == wt, "The listed wildtype does not match the provided sequence"
-
+    assert wt_sequence[idx] == wt, "The listed wildtype does not match the provided sequence"
     # modify the sequence
-    sequence = sequence[:idx] + mt + sequence[(idx + 1) :]
+    sequence = wt_sequence[:idx] + mt + wt_sequence[(idx + 1) :]
+    return sequence
 
+def compute_pppl(sequence, model, alphabet):
     # encode the sequence
     data = [
         ("protein1", sequence),
@@ -248,7 +248,7 @@ def compute_pppl(row, sequence, model, alphabet, offset_idx):
 
     batch_labels, batch_strs, batch_tokens = batch_converter(data)
 
-    wt_encoded, mt_encoded = alphabet.get_idx(wt), alphabet.get_idx(mt)
+    #wt_encoded, mt_encoded = alphabet.get_idx(wt), alphabet.get_idx(mt)
 
     # compute probabilities at each position
     log_probs = []
@@ -259,6 +259,7 @@ def compute_pppl(row, sequence, model, alphabet, offset_idx):
             token_probs = torch.log_softmax(model(batch_tokens_masked.cuda())["logits"], dim=-1)
         log_probs.append(token_probs[0, i, alphabet.get_idx(sequence[i])].item())  # vocab size
     return sum(log_probs)
+
 
 
 def main(args):
@@ -484,12 +485,20 @@ def main(args):
                 )
             elif args.scoring_strategy == "pseudo-ppl":
                 tqdm.pandas()
+                if 'mutated_sequence' not in df:
+                    df['mutated_sequence'] = df.progress_apply(
+                        lambda row: get_mutated_sequence(
+                            row[args.mutant_col], args.sequence, offset_idx
+                            ),
+                        axis=1,
+                    )
                 df[model_location] = df.progress_apply(
                     lambda row: compute_pppl(
-                        row[args.mutation_col], args.sequence, model, alphabet, args.offset_idx
-                    ),
+                        row['mutated_sequence'], model, alphabet
+                        ),
                     axis=1,
                 )
+
     # Compute ensemble score Ensemble_ESM1v, standardizes each model score and then averages them
     # note this assumes that all the input model checkpoints are ESM1v
     if "ESM1v" in args.model_type:

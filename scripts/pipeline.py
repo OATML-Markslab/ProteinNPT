@@ -24,10 +24,10 @@ parser.add_argument('--model_name_suffix', default='base_pipeline', type=str, he
 parser.add_argument('--model_name', default="PNPT_MSAT_final", type=str, help='Name of model used for training and inference [Optional -- defaults to ProteinNPT]')
 parser.add_argument('--fold_variable_name', default="train_test_split", type=str, help='Name of cross-validation fold variable name in the assay data (Optional -- defaults to "train_test_split" with 0 for train, 1 for test)')
 parser.add_argument('--test_fold_index', default=1, type=int, help='Index of test fold (if "-1", we loop through all folds iteratively)')
+parser.add_argument('--number_folds', default=5, type=int, help='Number of folds to create if fold_variable_name not in assay file')
 parser.add_argument('--model_config_location', default=None, type=str, help='Path to main model config file that specifies all parameters as needed [Optional - if None, we default to the config from model_type]')
 parser.add_argument('--target_config_location', default=None, type=str, help='Config file for assays to be used for modelings [Optional - if None, we default to single property prediction, and expects the variable name is DMS_score in the assay csv]')
 parser.add_argument('--sequence_embeddings_folder', default=None, type=str, help='Location of stored embeddings on disk [Optional -- defaults to standard embeddings location in data folder]')
-parser.add_argument('--number_folds', default=5, type=int, help='Number of folds to create if fold_variable_name not in assay file')
 parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (expects .a2m)')
 parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
 parser.add_argument('--batch_size', default=1, type=int, help='Eval batch size')
@@ -35,6 +35,8 @@ parser.add_argument('--embeddings_MSAT_num_MSA_sequences', default=384, type=int
 parser.add_argument('--MSA_sequence_weights_theta', default=0.2, type=float, help='Theta parameter used for sequence weights computation')
 parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
 parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+parser.add_argument('--ESM_zero_shot_scoring_strategy', default='masked-marginals', type=str, help='Masking strategy to compute ESM zero-shot predictions')
+parser.add_argument('--deactivate_zero_shot_prediction', action='store_true', help='Whether to deactivate use of zero-shot fitness predictions as auxiliary labels')
 
 args = parser.parse_args()
 
@@ -59,6 +61,7 @@ model_location_mapping = {
 #Set defaults
 if not args.model_config_location: args.model_config_location = default_config_mapping[args.model_name]
 model_config = json.load(open(args.model_config_location))
+if args.deactivate_zero_shot_prediction: model_config['augmentation'] = "None"
 if args.target_config_location is None: args.target_config_location = "../proteinnpt/utils/target_configs/fitness.json"
 model_name = model_config['model_name_suffix'] if model_config['model_name_suffix']!="PNPT_MSAT_final" else "ProteinNPT"
 DMS_id = args.assay_data_location.split(".csv")[0].split(os.sep)[-1]
@@ -69,13 +72,17 @@ assert "mutant" in assay_data.columns or "mutated_sequence" in assay_data.column
 if "mutated_sequence" not in assay_data.columns:
     assay_data["mutated_sequence"] = assay_data['mutant'].apply(lambda x: scoring_utils.get_mutated_sequence(args.target_seq, x))
 if "mutant" not in assay_data.columns:
-    assay_data['mutant'] = assay_data.index.apply(lambda x: "mutant_" + str(x))
+    assay_data['mutant'] = assay_data.index.to_series().apply(lambda x: "mutant_" + str(x))
 if args.fold_variable_name not in assay_data.columns:
     print("fold_variable_name not found in assay file. Assigning {} folds at random".format(args.number_folds))
     assay_data = cv_split.create_folds_random(assay_data, n_folds=args.number_folds)
 assay_data.to_csv(args.assay_data_location,index=False)
 
-if args.sequence_embeddings_folder is None: args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings" + os.sep + model_config['aa_embeddings']
+if args.sequence_embeddings_folder is None: 
+    args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings" + os.sep + model_config['aa_embeddings']
+else:
+    if not os.path.exists(args.sequence_embeddings_folder): os.mkdir(args.sequence_embeddings_folder)
+    args.sequence_embeddings_folder = args.sequence_embeddings_folder + os.sep + model_config['aa_embeddings']
 embeddings_location = args.sequence_embeddings_folder + os.sep + DMS_id + ".h5"
 weight_file_name = DMS_id + '_theta_' + str(args.MSA_sequence_weights_theta) + ".npy"
 if not os.path.exists(embeddings_location) and model_config['aa_embeddings']!="One_hot_encoding":
@@ -153,7 +160,7 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
             --model_type MSA_Transformer \
             --dms-input {} \
             --dms-output {} \
-            --scoring-strategy masked-marginals \
+            --scoring-strategy {} \
             --msa-path {} \
             --target_seq {} \
             --msa-weights-folder {} \
@@ -162,6 +169,7 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
                 model_location_mapping[model_config['aa_embeddings']],
                 args.assay_data_location,
                 zero_shot_scores_folder + os.sep + "MSA_Transformer",
+                args.ESM_zero_shot_scoring_strategy,
                 args.MSA_location,
                 args.target_seq,
                 args.proteinnpt_data_location + os.sep + "data/MSA/MSA_weights",
@@ -176,7 +184,7 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
             --dms-input {} \
             --dms-output {} \
             --target_seq {} \
-            --scoring-strategy masked-marginals \
+            --scoring-strategy {} \
             --scoring-window optimal".format(
                 model_location_mapping["ESM1v"],
                 model_location_mapping["ESM1v-2"],
@@ -185,7 +193,8 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
                 model_location_mapping["ESM1v-5"],
                 args.assay_data_location,
                 zero_shot_scores_folder + os.sep + "ESM1v",
-                args.target_seq
+                args.target_seq,
+                args.ESM_zero_shot_scoring_strategy
             )
         os.system("python zero_shot_fitness_esm.py "+zero_shot_run_parameters)
     elif model_config['aa_embeddings']=="Tranception":
@@ -218,7 +227,7 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
         if args.indel_mode: zero_shot_run_parameters += "--indel_mode --clustal_omega_location {} ".format(args.proteinnpt_data_location + os.sep + "utils/clustal-omega")
         os.system("python zero_shot_fitness_tranception.py "+zero_shot_run_parameters)
     #Merge zero-shot files
-    merge = assay_data.copy()[['mutant','mutated_sequence','DMS_score']]
+    merge = assay_data.copy()[['mutant','mutated_sequence']]
     num_mutants = len(merge)
     model_list = ["Tranception", "ESM1v", "MSA_Transformer"] if not args.indel_mode else ["Tranception"]
     for model_name in model_list:
@@ -241,6 +250,7 @@ else:
 
 
 print("#"*100+"\n Step3: Training the {} model on the {} assay \n".format(model_name,DMS_id)+"#"*100)
+if args.indel_mode and model_config['aa_embeddings'] in ['ESM1v','MSA_Transformer']: model_config['augmentation'] = "None"
 training_run_parameters = "--data_location {} \
     --assay_data_location {} \
     --model_config_location {} \
@@ -253,6 +263,7 @@ training_run_parameters = "--data_location {} \
     --MSA_sequence_weights_filename {} \
     --target_seq {} \
     --test_fold_index {} \
+    --augmentation {} \
     --model_name_suffix {} ".format(
         args.proteinnpt_data_location,
         args.assay_data_location,
@@ -265,11 +276,10 @@ training_run_parameters = "--data_location {} \
         weight_file_name,
         args.target_seq,
         args.test_fold_index,
+        model_config['augmentation'],
         args.model_name_suffix   
     )
 if args.MSA_start: training_run_parameters += "--MSA_start {} ".format(args.MSA_start)
-if args.MSA_end: training_run_parameters += "--MSA_end {} ".format(args.MSA_end)    
-if args.indel_mode: 
-    if model_config['aa_embeddings'] in ['ESM1v','MSA_Transformer']: training_run_parameters += "--augmentation {} ".format("None")
-    training_run_parameters += "--indel_mode"
+if args.MSA_end: training_run_parameters += "--MSA_end {} ".format(args.MSA_end) 
+if args.indel_mode: training_run_parameters += "--indel_mode"
 os.system("python train.py "+training_run_parameters)

@@ -251,7 +251,7 @@ class AugmentedPropertyPredictor(nn.Module):
             if self.args.target_config[target_name]["type"]=="continuous":
                 tgt_loss = MSELoss(reduction="sum")(target_predictions[target_name][non_missing_target_indicator], target_labels[target_name][non_missing_target_indicator])
             else:
-                tgt_loss = CrossEntropyLoss(reduction="none",label_smoothing=label_smoothing)(target_predictions[target_name].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name].view(-1))
+                tgt_loss = CrossEntropyLoss(reduction="mean",label_smoothing=label_smoothing)(target_predictions[target_name].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name].view(-1))
             target_prediction_loss_dict[target_name] = tgt_loss
             total_target_prediction_loss += tgt_loss
         return total_target_prediction_loss, target_prediction_loss_dict
