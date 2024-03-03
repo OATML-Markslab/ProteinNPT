@@ -307,12 +307,12 @@ class ProteinNPTModel(nn.Module):
         target_predictions = {}
         for target_index, target_name in enumerate(self.target_names):
             if self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled": 
-                target_predictions[target_name] = self.target_pred_head[target_name](y).view(-1) #We use the concatenated X and target embeddings (all of them) to predict each target
+                target_predictions[target_name] = self.target_pred_head[target_name](y).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1) #We use the concatenated X and target embeddings (all of them) to predict each target
             else:
                 if self.args.target_prediction_model == "MLP": y[:,target_index,:] = self.layer_pre_head[target_name](y[:,target_index,:])
-                target_predictions[target_name] = self.target_pred_head[target_name](y[:,target_index,:]).view(-1) #input the embedding with the relevant target_index
+                target_predictions[target_name] = self.target_pred_head[target_name](y[:,target_index,:]).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1) #input the embedding with the relevant target_index
             if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
-                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).squeeze()
+                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1)
             
         result = {"logits_protein_sequence": logits_protein_sequence, "target_predictions": target_predictions, "representations": hidden_representations}
         
@@ -373,17 +373,17 @@ class ProteinNPTModel(nn.Module):
         target_prediction_loss = {}
         for target_name in self.target_names:
             if self.args.target_config[target_name]["in_NPT_loss"]:
-                if self.args.target_config[target_name]["type"]=="continuous":
-                    loss_masked_targets = ~target_labels[target_name].eq(-100) #Masked items are the ones for which the label was not set to -100
-                    if loss_masked_targets.sum()==0 or torch.isnan(target_labels[target_name][loss_masked_targets]).sum() > 0: #First condition true if we dont mask anything (eg., all target missing at eval). Second condition true if we force-mask one value at train time (to satisfy min_num_labels_masked in mast_target()) and corresponding target value is missing
-                        tgt_loss = torch.tensor(0.0)
-                    else:
-                        tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets]) #we do not average the loss per batch, so that it's easier to do 1 full average across all batches
-                    if torch.isnan(tgt_loss).sum() > 0:
-                        print("Detected nan loss")
-                        print(target_predictions[target_name])
+                loss_masked_targets = ~target_labels[target_name].eq(-100) #Masked items are the ones for which the label was not set to -100
+                if loss_masked_targets.sum()==0 or torch.isnan(target_labels[target_name][loss_masked_targets]).sum() > 0: #First condition true if we dont mask anything (eg., all target missing at eval). Second condition true if we force-mask one value at train time (to satisfy min_num_labels_masked in mast_target()) and corresponding target value is missing
+                    tgt_loss = torch.tensor(0.0)
                 else:
-                    tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name].view(-1)) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
+                    if self.args.target_config[target_name]["type"]=="continuous":
+                        tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets]) #we do not average the loss per batch, so that it's easier to do 1 full average across all batches
+                    else:
+                        tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1)) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
+                if torch.isnan(tgt_loss).sum() > 0:
+                    print("Detected nan loss")
+                    print(target_predictions[target_name])
                 target_prediction_loss[target_name] = tgt_loss
                 
                 total_loss += target_prediction_loss_weight * target_prediction_loss[target_name]

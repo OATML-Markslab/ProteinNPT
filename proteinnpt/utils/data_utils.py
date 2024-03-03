@@ -112,7 +112,7 @@ def preprocess_training_targets(training_targets, target_config):
         else:
             # One-hot encoding
             target_processing[target_name]={}
-            unique_categories = training_targets[target_name].unique()
+            unique_categories = set(training_targets[target_name].dropna().unique())
             assert target_config[target_name]["dim"]==len(unique_categories), "list_dim_input_targets not properly referenced for target indexed: {}".format(target_name)
             category_to_index = dict((c, i) for i, c in enumerate(unique_categories))
             index_to_category = dict((i, c) for i, c in enumerate(unique_categories))

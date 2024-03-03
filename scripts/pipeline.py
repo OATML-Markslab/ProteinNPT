@@ -23,11 +23,12 @@ parser.add_argument('--indel_mode', action='store_true', help='Use this mode if 
 parser.add_argument('--model_name_suffix', default='base_pipeline', type=str, help='Suffix to reference model')
 parser.add_argument('--model_name', default="PNPT_MSAT_final", type=str, help='Name of model used for training and inference [Optional -- defaults to ProteinNPT]')
 parser.add_argument('--fold_variable_name', default="train_test_split", type=str, help='Name of cross-validation fold variable name in the assay data (Optional -- defaults to "train_test_split" with 0 for train, 1 for test)')
-parser.add_argument('--test_fold_index', default=1, type=int, help='Index of test fold (if "-1", we loop through all folds iteratively)')
+parser.add_argument('--test_fold_index', default=-1, type=int, help='Index of test fold (if "-1", we loop through all folds iteratively)')
 parser.add_argument('--number_folds', default=5, type=int, help='Number of folds to create if fold_variable_name not in assay file')
 parser.add_argument('--model_config_location', default=None, type=str, help='Path to main model config file that specifies all parameters as needed [Optional - if None, we default to the config from model_type]')
 parser.add_argument('--target_config_location', default=None, type=str, help='Config file for assays to be used for modelings [Optional - if None, we default to single property prediction, and expects the variable name is DMS_score in the assay csv]')
 parser.add_argument('--sequence_embeddings_folder', default=None, type=str, help='Location of stored embeddings on disk [Optional -- defaults to standard embeddings location in data folder]')
+parser.add_argument('--zero_shot_predictions_folder', default=None, type=str, help='Location of zero-shot predictions on disk [Optional -- defaults to standard zero-shot predictions location in data folder]')
 parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (expects .a2m)')
 parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
 parser.add_argument('--batch_size', default=1, type=int, help='Eval batch size')
@@ -129,8 +130,11 @@ else:
     print("#"*100+"\n Step1: Found embeddings for the {} assay on disk \n".format(DMS_id)+"#"*100)
 
 
-zero_shot_scores_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "zero_shot_fitness_predictions"
-zero_shot_scores_folder = zero_shot_scores_folder + os.sep + "indels" if args.indel_mode else zero_shot_scores_folder + os.sep + "substitutions"
+if args.zero_shot_predictions_folder is None:
+    args.zero_shot_predictions_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "zero_shot_fitness_predictions"
+else:
+    if not os.path.exists(args.zero_shot_predictions_folder): os.mkdir(args.zero_shot_predictions_folder)
+zero_shot_scores_folder = args.zero_shot_predictions_folder + os.sep + "indels" if args.indel_mode else args.zero_shot_predictions_folder + os.sep + "substitutions"
 zero_shot_fitness_predictions_location = zero_shot_scores_folder + os.sep + DMS_id + ".csv"
 score_name_mapping_original_names = {
         "Tranception" : "avg_score",
