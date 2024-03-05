@@ -23,7 +23,11 @@ def assign_group_stratified(x):
 
 def create_folds_random(DMS, n_folds=5, mutant_column='mutant'):
     column_name = 'fold_random_{}'.format(n_folds)
-    mutated_region_list = DMS[mutant_column].apply(lambda x: return_position_single(x)).unique()
+    try:
+        mutated_region_list = DMS[mutant_column].apply(lambda x: return_position_single(x)).unique()
+    except:
+        print("Mutated region not found from 'mutant' variable -- assuming the full protein sequence is mutated")
+        mutated_region_list = range(len(DMS['mutated_sequence'].values[0]))
     len_mutated_region = len(mutated_region_list)
     if len_mutated_region < n_folds:
         raise Exception("Error, there are fewer mutated regions than requested folds")
@@ -62,7 +66,7 @@ def create_folds_by_contiguous_position_discontiguous(DMS, n_folds=5, mutant_col
     print(DMS[column_name].value_counts())
     return DMS
 
-def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = './ProteinGym/DMS_assays/substitutions', saving_folder = './ProteinGym/data/fitness'):
+def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = './ProteinGym/DMS_assays/substitutions', saving_folder = './ProteinGym/data/fitness', DMS_score_name = 'DMS_score', DMS_score_bin_name = 'DMS_score_bin'):
     ProteinGym_ref =  pd.read_csv(reference_file_location, low_memory=False)
     list_errors = []
     for DMS_id, DMS_has_multiples, region_mutated in zip(ProteinGym_ref.DMS_id, ProteinGym_ref.includes_multiple_mutants, ProteinGym_ref.region_mutated):
@@ -76,7 +80,7 @@ def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = 
                 DMS_saving_path = saving_folder + os.sep + 'multiples/' + DMS_id + ".csv"
                 DMS.to_csv(DMS_saving_path, index=False)
                 DMS = keep_singles(DMS)
-                DMS = DMS[['mutant','mutated_sequence','DMS_score','DMS_score_bin']]
+                DMS = DMS[['mutant','mutated_sequence',DMS_score,DMS_score_bin]] if DMS_score_bin_name else DMS[['mutant','mutated_sequence',DMS_score]]
             else:
                 DMS_path = dir_path + os.sep + DMS_id + ".csv"
                 DMS = pd.read_csv(DMS_path, low_memory=False)
@@ -96,7 +100,7 @@ def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = 
                     list_errors.append(DMS_id)
                     print(e)
             DMS_saving_path = saving_folder + os.sep + DMS_id + ".csv"
-            DMS=DMS[['mutant','mutated_sequence','DMS_score','DMS_score_bin','fold_random_5','fold_modulo_5','fold_contiguous_5']]
+            DMS=DMS[['mutant','mutated_sequence',DMS_score,DMS_score_bin,'fold_random_5','fold_modulo_5','fold_contiguous_5']] if DMS_score_bin_name else DMS[['mutant','mutated_sequence',DMS_score,'fold_random_5','fold_modulo_5','fold_contiguous_5']]
             DMS.to_csv(DMS_saving_path, index=False)
         except:
             print("Error with creating the CV schemes for assay: {}".format(DMS_id))

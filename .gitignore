@@ -3,6 +3,8 @@ slurm
 archives
 output
 proteinnpt.egg-info
+build
+dist
 ProteinNPT_data/
 # DMS files
 *.csv
