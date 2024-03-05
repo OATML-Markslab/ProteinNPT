@@ -122,8 +122,13 @@ def main(
     MSA_location=None,
     weight_file_name=None,
     MSA_start=None,
-    MSA_end=None
+    MSA_end=None,
+    use_cpu=False,
     ):
+    
+    if not use_cpu and not torch.cuda.is_available():
+        print("CUDA not available. This script is intended to run on a GPU, to use a CPU run with --use_cpu")
+        return
     
     assert (indel_mode and not fast_MSA_mode and batch_size==1) or (fast_MSA_mode and model_type=="MSA_Transformer") or (not indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
 
@@ -167,7 +172,8 @@ def main(
 
     # Set the model to evaluation mode & move to cuda
     model.eval()
-    model.cuda()
+    if not use_cpu:
+        model.cuda()
     #DMS file
     df = pd.read_csv(input_data_location)
     if 'mutated_sequence' not in df: df['mutated_sequence'] = df['mutant'] # May happen on indel assays
@@ -389,6 +395,7 @@ def parse_arguments():
     parser.add_argument('--weight_file_name', default=None, type=str, help='Name of weight file')
     parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
     return parser.parse_args()
 
 
@@ -416,4 +423,5 @@ if __name__ == "__main__":
         #If not using a reference file
         target_seq=args.target_seq,
         MSA_location=args.MSA_location,
+        use_cpu=args.use_cpu,
     )
