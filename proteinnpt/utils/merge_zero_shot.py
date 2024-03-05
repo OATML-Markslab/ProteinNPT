@@ -8,7 +8,10 @@ def main(args):
     print("Merging all zero-shot scores for DMS: "+str(DMS_id))
     DMS_file_name = mapping_protein_seq_DMS["DMS_filename"][mapping_protein_seq_DMS["DMS_id"]==DMS_id].values[0]
     DMS_data = pd.read_csv(args.DMS_mutants_folder + os.sep + DMS_file_name, low_memory=False)
-    var_list = ['mutant','mutated_sequence','DMS_score','DMS_score_bin'] if not args.indel_mode else ['mutant','mutated_sequence','DMS_score']
+    try:
+        var_list = ['mutant','mutated_sequence','DMS_score','DMS_score_bin']
+    except:
+        var_list = ['mutant','mutated_sequence']
     merge = DMS_data[var_list]
     num_mutants = len(merge)
     score_name_mapping_original_names = {

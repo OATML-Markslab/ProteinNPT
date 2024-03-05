@@ -345,7 +345,11 @@ class Trainer():
                 for target_name in self.model.target_names:
                     if self.model.model_type=="ProteinNPT": normalization = eval_results['eval_num_masked_targets'][target_name] #Update for PNPT (keeep the same normalization constant otherwise)
                     eval_logs['Eval loss '+str(target_name)+' per seq.'] = eval_results['eval_target_prediction_loss_dict'][target_name] / normalization
-                    eval_logs['Eval spearman '+target_name] = spearmanr(eval_results['output_scores']['predictions_'+target_name], eval_results['output_scores']['labels_'+target_name])[0]
+                    if self.args.target_config[target_name]["dim"]==1:
+                        eval_logs['Eval spearman '+target_name] = spearmanr(eval_results['output_scores']['predictions_'+target_name], eval_results['output_scores']['labels_'+target_name])[0]
+                    else:
+                        # In the categorical setting, we predict the spearman between the logits of the category with highest index, and target value indices. This is meaningul in the binary setting. Use with care if 3 categories or more.
+                        eval_logs['Eval spearman '+target_name] = spearmanr(eval_results['output_scores']['predictions_'+target_name][:,-1], eval_results['output_scores']['labels_'+target_name])[0]
                     average_spearman_across_targets += eval_logs['Eval spearman '+target_name]
                 average_spearman_across_targets /= len(self.model.target_names)
                 print(" | ".join([key + ": "+str(round(eval_logs[key],5)) for key in eval_logs.keys()]))
