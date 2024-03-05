@@ -199,9 +199,9 @@ class AugmentedPropertyPredictor(nn.Module):
         
         target_predictions = {}
         for target_name in self.target_names:
-            target_predictions[target_name] = self.target_pred_head[target_name](x).view(-1)
+            target_predictions[target_name] = self.target_pred_head[target_name](x).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1)
             if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
-                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).squeeze()
+                target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1)
 
         result = {"target_predictions": target_predictions, "representations": hidden_representations}
         
@@ -249,9 +249,9 @@ class AugmentedPropertyPredictor(nn.Module):
         for target_name in self.target_names:
             non_missing_target_indicator = ~torch.isnan(target_labels[target_name])
             if self.args.target_config[target_name]["type"]=="continuous":
-                tgt_loss = MSELoss(reduction="sum")(target_predictions[target_name][non_missing_target_indicator], target_labels[target_name][non_missing_target_indicator])
+                tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][non_missing_target_indicator], target_labels[target_name][non_missing_target_indicator])
             else:
-                tgt_loss = CrossEntropyLoss(reduction="none",label_smoothing=label_smoothing)(target_predictions[target_name].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name].view(-1))
+                tgt_loss = CrossEntropyLoss(reduction="mean",label_smoothing=label_smoothing)(target_predictions[target_name][non_missing_target_indicator].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][non_missing_target_indicator].view(-1))
             target_prediction_loss_dict[target_name] = tgt_loss
             total_target_prediction_loss += tgt_loss
         return total_target_prediction_loss, target_prediction_loss_dict

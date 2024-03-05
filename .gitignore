@@ -2,6 +2,8 @@
 slurm
 archives
 output
+build
+dist
 proteinnpt.egg-info
 ProteinNPT_data/
 # DMS files
@@ -11,4 +13,4 @@ ProteinNPT_data/
 # Weights
 *.npy
 # Reference files
-!proteinnpt/*.csv  
+!proteinnpt/*.csv

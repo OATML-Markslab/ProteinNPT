@@ -210,8 +210,10 @@ def main(args):
         for target in target_names_input:
             if target=="zero_shot_fitness_predictions":
                 assay_file_names[target] = assay_file_name # The name of the zero-shot prediction file matches that of the main assay
+            elif args.assay_reference_file_location is None: #Not using reference file
+                print("If not using a reference file and predicting several targets simultaneously, we assume the different targets are all present in the same assay file")
+                assay_file_names[target] = assay_file_name
             else:
-                assert args.assay_reference_file_location is not None, "Multi-property training not yet supported without reference file"
                 assay_file_names[target] = assay_reference_file[target][assay_reference_file["DMS_id"]==assay_id].values[0]
             
     # Load training, val and test data
