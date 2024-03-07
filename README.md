@@ -73,18 +73,22 @@ The `utils` in this codebase leverage code from:
 - hhfilter (from the [hhsuite](https://github.com/soedinglab/hh-suite))
 - [clustal-omega](http://www.clustal.org/omega/)
 
+## Links
+- NeurIPS proceedings: https://papers.nips.cc/paper_files/paper/2023/hash/6a4d5d85f7a52f062d23d98d544a5578-Abstract-Conference.html
+- Preprint: https://www.biorxiv.org/content/10.1101/2023.12.06.570473v1
+
 ## References
 If you use this codebase, please cite the following paper:
 ```bibtex
-@article {Notin2023.12.06.570473,
-	author = {Pascal Notin and Ruben Weitzman and Debora S Marks and Yarin Gal},
-	title = {ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers},
-	elocation-id = {2023.12.06.570473},
-	year = {2023},
-	doi = {10.1101/2023.12.06.570473},
-	publisher = {Cold Spring Harbor Laboratory},
-	URL = {https://www.biorxiv.org/content/early/2023/12/07/2023.12.06.570473},
-	eprint = {https://www.biorxiv.org/content/early/2023/12/07/2023.12.06.570473.full.pdf},
-	journal = {bioRxiv}
+@inproceedings{NEURIPS2023_6a4d5d85,
+ author = {Notin, Pascal and Weitzman, Ruben and Marks, Debora and Gal, Yarin},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {A. Oh and T. Neumann and A. Globerson and K. Saenko and M. Hardt and S. Levine},
+ pages = {33529--33563},
+ publisher = {Curran Associates, Inc.},
+ title = {ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2023/file/6a4d5d85f7a52f062d23d98d544a5578-Paper-Conference.pdf},
+ volume = {36},
+ year = {2023}
 }
 ```
