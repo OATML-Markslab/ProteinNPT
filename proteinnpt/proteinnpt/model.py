@@ -242,6 +242,7 @@ class ProteinNPTModel(nn.Module):
                 num_sequences_with_target, dim_targets = targets[target_name].shape # N, D_t #In most cases dim_targets = D_t = 2 (original dimension of continuous input + 1 dim for mask)
             else:
                 num_sequences_with_target = targets[target_name].shape[0] #Input categorical targets is unidmensional ie a vector of category indices
+                targets[target_name] = targets[target_name].long() #Ensure we cast to integer before passing to Embedding layer for categorical targets
             y.append(self.target_embedding[target_name](targets[target_name]).view(num_sequences_with_target,1,self.args.embed_dim))
         y = torch.cat(y, dim=-2) #concatenate across second to last dimension # N, num_targets, D
         assert y.shape == (num_sequences_with_target, self.num_targets_input, self.args.embed_dim), "Error in y shape: {}".format(y.shape)

@@ -239,6 +239,8 @@ elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot
         os.system("python zero_shot_fitness_tranception.py "+zero_shot_run_parameters)
     #Merge zero-shot files
     merge = assay_data.copy()[['mutant','mutated_sequence']]
+    merge['mutated_sequence_with_gaps'] = merge['mutated_sequence']
+    merge['mutated_sequence'] = merge['mutated_sequence'].apply(lambda x: x.replace("-",""))
     num_mutants = len(merge)
     model_list = ["Tranception", "ESM1v", "MSA_Transformer"] if not args.indel_mode else ["Tranception"]
     for model_name in model_list:
