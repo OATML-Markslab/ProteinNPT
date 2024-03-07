@@ -198,6 +198,28 @@ if __name__ == "__main__":
     sequences_list = []
     mutants_list = []
 
+    # Pre-processing over gaps in sequences: 
+    # If single-sequence input model --> remove gaps everywhere
+    # If MSA input (eg., MSA Transformer) --> keep all gaps and align MSA to the gaps of the first sequence (assumes the MSA was created for that first sequence without gaps). If no gaps in that first sequence we dont do anything.
+    if args.model_type in ["Tranception","ESM1v"]:
+        df['mutated_sequence'] = df['mutated_sequence'].apply(lambda x: x.replace("-",""))
+    elif args.model_type in ["MSA_Transformer"]:
+        first_sequence = df['mutated_sequence'].values[0]
+        dash_positions = [i for i, char in enumerate(first_sequence) if char == "-"] #Indices of gaps in first sequence to score
+        if len(dash_positions)>0:
+            print("Gaps detected in reference sequence -- inserting gaps in the MSA accordingly")
+            MSA_sequences_with_dashes = []
+            for seq_id, sequence in MSA_sequences:
+                # Convert sequence to a list to allow insertion
+                sequence_list = list(sequence)
+                for position in dash_positions:
+                    # Insert "-" at each position. Adjust for the number of dashes already inserted.
+                    sequence_list.insert(position, "-")
+                # Convert list back to string
+                sequence_with_dashes = ''.join(sequence_list)
+                MSA_sequences_with_dashes.append((seq_id, sequence_with_dashes))
+            MSA_sequences = MSA_sequences_with_dashes
+
     # Create a data loader to iterate over the input sequences. 
     # For ESM models (MSA Transformer in particular), the bulk of the work is done within process_embeddings_batch
     # For Tranception, utils for slicing already exist so we directly process & tokenize sequences below

@@ -89,7 +89,7 @@ class ProteinNPTModel(nn.Module):
                 if self.args.target_config[target_name]["type"]=="continuous"
                 else 
                 nn.Embedding(
-                    self.args.target_config[target_name]["dim"],
+                    self.args.target_config[target_name]["dim"] + 1, #Size of the dictionary of embeddings. Need to add 1 for the mask flag as well
                     self.args.embed_dim
                 )
                 for target_name in self.target_names_input
@@ -238,7 +238,10 @@ class ProteinNPTModel(nn.Module):
         #Dimensions for each target (there are self.num_targets of them):
         y = []
         for target_name in self.target_names_input:
-            num_sequences_with_target, dim_targets = targets[target_name].shape # N, D_t #In most cases dim_targets = D_t = 2 (original dimension of continuous input + 1 dim for mask)
+            if self.args.target_config[target_name]["type"]=="continuous":
+                num_sequences_with_target, dim_targets = targets[target_name].shape # N, D_t #In most cases dim_targets = D_t = 2 (original dimension of continuous input + 1 dim for mask)
+            else:
+                num_sequences_with_target = targets[target_name].shape[0] #Input categorical targets is unidmensional ie a vector of category indices
             y.append(self.target_embedding[target_name](targets[target_name]).view(num_sequences_with_target,1,self.args.embed_dim))
         y = torch.cat(y, dim=-2) #concatenate across second to last dimension # N, num_targets, D
         assert y.shape == (num_sequences_with_target, self.num_targets_input, self.args.embed_dim), "Error in y shape: {}".format(y.shape)

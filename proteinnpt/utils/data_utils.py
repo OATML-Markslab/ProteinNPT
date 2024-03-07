@@ -6,8 +6,8 @@ import torch
 import h5py
 from datasets import Dataset
 
-def standardize(x):
-    return (x - x.mean()) / x.std()
+def standardize(x, epsilon = 1e-10):
+    return (x - x.mean()) / (x.std() + epsilon)
 
 def split_data_based_on_test_fold_index(dataframe, fold_variable_name = 'fold_modulo_5', test_fold_index=None, use_validation_set=True):
     unique_folds = np.unique(dataframe[fold_variable_name])

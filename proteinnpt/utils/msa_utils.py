@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import tempfile
+from tqdm import tqdm
+from numba import njit, prange
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
@@ -153,17 +155,8 @@ class MSA_processing:
                 print("Loaded sequence weights from disk")
             except:
                 print ("Computing sequence weights")
-                list_seq = self.one_hot_encoding
-                list_seq = list_seq.reshape((list_seq.shape[0], list_seq.shape[1] * list_seq.shape[2]))
-                def compute_weight(seq):
-                    number_non_empty_positions = np.dot(seq,seq)
-                    if number_non_empty_positions>0:
-                        denom = np.dot(list_seq,seq) / np.dot(seq,seq) 
-                        denom = np.sum(denom > 1 - self.theta) 
-                        return 1/denom
-                    else:
-                        return 0.0 #return 0 weight if sequence is fully empty
-                self.weights = np.array(list(map(compute_weight,list_seq)))
+                list_seq = self.one_hot_encoding.reshape((self.one_hot_encoding.shape[0], self.one_hot_encoding.shape[1] * self.one_hot_encoding.shape[2]))
+                self.weights = compute_weight_all(list_seq,self.theta)
                 np.save(file=self.weights_location, arr=self.weights)
         else:
             # If not using weights, use an isotropic weight matrix
@@ -178,6 +171,26 @@ class MSA_processing:
 
         print ("Neff =",str(self.Neff))
         print ("Data Shape =",self.one_hot_encoding.shape)
+
+@njit
+def compute_weight(seq, list_seq, theta):
+    number_non_empty_positions = np.dot(seq, seq)
+    if number_non_empty_positions > 0:
+        denom = np.dot(list_seq, seq) / number_non_empty_positions
+        denom = np.sum(denom > 1 - theta)
+        return 1 / denom
+    else:
+        return 0.0  # return 0 weight if sequence is fully empty
+
+def compute_weight_all(list_seq, theta, updated_freq=100):
+    list_seq = np.array(list_seq)  # Assuming list_seq is convertible to a numpy array
+    final_results = np.zeros(len(list_seq))
+    pbar = tqdm(total=len(list_seq), desc="Computing weights")
+    for i in prange(len(list_seq)):
+        final_results[i] = compute_weight(list_seq[i], list_seq, theta)
+        if i%updated_freq==0: pbar.update(updated_freq)
+    pbar.close()
+    return final_results
 
 def filter_msa(filename, path_to_hhfilter, hhfilter_min_cov=75, hhfilter_max_seq_id=90, hhfilter_min_seq_id=0):
     """

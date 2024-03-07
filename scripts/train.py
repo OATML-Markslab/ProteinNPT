@@ -7,6 +7,7 @@ import pandas as pd
 import wandb
 import torch
 from collections import defaultdict
+from torch.nn import CrossEntropyLoss
 
 from proteinnpt.proteinnpt.model import ProteinNPTModel
 from proteinnpt.baselines.model import AugmentedPropertyPredictor
@@ -20,13 +21,16 @@ def setup_config_and_paths(args):
     # All parameters that are not defined by end user are fetched from the config file
     if args.model_config_location is not None:
         args.main_config=json.load(open(args.model_config_location))
+        args_setup_from_config=set([])
         for key in args.main_config:
             if args.__dict__[key] is None:
                 args.__dict__[key] = args.main_config[key]
+                args_setup_from_config.add(key)
     
     # File paths config
     for local_path in ['embedding_model_location','MSA_data_folder','MSA_weight_data_folder','path_to_hhfilter']:
-        if getattr(args, local_path): setattr(args, local_path, args.data_location + os.sep + getattr(args, local_path))
+        if getattr(args, local_path) and local_path in args_setup_from_config: 
+            setattr(args, local_path, args.data_location + os.sep + getattr(args, local_path))
     if not os.path.exists(args.data_location + os.sep + 'model_predictions'): os.mkdir(args.data_location + os.sep + 'model_predictions')
     if not os.path.exists(args.data_location + os.sep + 'checkpoint'): os.mkdir(args.data_location + os.sep + 'checkpoint')
     args.output_scores_location = args.data_location + os.sep + 'model_predictions' + os.sep + args.model_name_suffix
@@ -94,9 +98,15 @@ def log_performance_fold(args,target_names,test_eval_results,trainer_final_statu
     else:
         normalization = test_eval_results['eval_num_predicted_targets']
     test_logs['Test total loss per seq.'] = test_eval_results['eval_total_loss'] / normalization
-    spearmans = {target_name: pnpt_spearmanr(test_eval_results['output_scores']['predictions_'+target_name], test_eval_results['output_scores']['labels_'+target_name]) for target_name in target_names}
-    num_obs_spearmans = {target_name: pnpt_count_non_nan(test_eval_results['output_scores']['labels_'+target_name]) for target_name in target_names}
-    for target_name in target_names:
+    spearmans = {}
+    num_obs_spearmans = {}
+    for target_name in target_names: 
+        if args.target_config[target_name]["dim"]==1:
+            spearmans[target_name] = pnpt_spearmanr(test_eval_results['output_scores']['predictions_'+target_name], test_eval_results['output_scores']['labels_'+target_name])
+        else:
+            # In the categorical setting, we predict the spearman between the logits of the category with highest index, and target value indices. This is meaningul in the binary setting. Use with care if 3 categories or more.
+            spearmans[target_name] = pnpt_spearmanr(test_eval_results['output_scores']['predictions_'+target_name].apply(lambda x: x[-1]), test_eval_results['output_scores']['labels_'+target_name])
+        num_obs_spearmans[target_name] = pnpt_count_non_nan(test_eval_results['output_scores']['labels_'+target_name])
         print("Spearman {} target: {}".format(target_name,spearmans[target_name]))
         test_logs['Test Spearman '+target_name] = spearmans[target_name]
         if args.model_type=="ProteinNPT": normalization = test_eval_results['eval_num_masked_targets'][target_name]
@@ -127,13 +137,20 @@ def log_performance_all_folds(args,target_names,all_test_predictions_across_fold
         perf = ",".join([str(x) for x in perf_list[1:]]) #Remove fold_index from perf_list
         for target_name in target_names:
             missing_mask = np.isnan(all_test_predictions_across_folds['labels_'+target_name]) | np.equal(all_test_predictions_across_folds['labels_'+target_name],-100)
-            MSE = ((all_test_predictions_across_folds['predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
-            spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
+            if args.target_config[target_name]["type"]=="continuous":
+                loss = ((all_test_predictions_across_folds['predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
+                loss_standardized = ((all_test_predictions_across_folds['fold_standardized_predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
+                spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
+                spearman_standardized = pnpt_spearmanr(all_test_predictions_across_folds['fold_standardized_predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
+            else:
+                predictions_np = np.array([np.array(pred, dtype=np.float32) for pred in all_test_predictions_across_folds['predictions_'+target_name][~missing_mask]])
+                loss = CrossEntropyLoss(reduction="mean")(torch.tensor(predictions_np).view(-1, args.target_config[target_name]["dim"]), torch.tensor(all_test_predictions_across_folds['labels_'+target_name][~missing_mask]).view(-1)).item()
+                loss_standardized = None
+                spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name].apply(lambda x: x[-1]), all_test_predictions_across_folds['labels_'+target_name])
+                spearman_standardized = None 
             num_obs_spearman = pnpt_count_non_nan(all_test_predictions_across_folds['labels_'+target_name])
-            MSE_standardized = ((all_test_predictions_across_folds['fold_standardized_predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
-            spearman_standardized = pnpt_spearmanr(all_test_predictions_across_folds['fold_standardized_predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
             spearman_std_dev = np.array(spearmans_across_folds[target_name]).std()
-            perf += ("," + str(MSE) +","+str(spearman) + ","+ str(spearman_std_dev) + "," + str(num_obs_spearman) + "," + str(MSE_standardized) +","+str(spearman_standardized))
+            perf += ("," + str(loss) +","+str(spearman) + ","+ str(spearman_std_dev) + "," + str(num_obs_spearman) + "," + str(loss_standardized) +","+str(spearman_standardized))
         overall_perf.write(perf+"\n")
 
 def main(args):
@@ -385,8 +402,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     setup_config_and_paths(args)
-    print(args.embedding_model_location)
-
+    
     if (args.MSA_start is None) or (args.MSA_end is None):
         if args.MSA_location is not None: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
         args.MSA_start = 1
@@ -416,7 +432,7 @@ if __name__ == "__main__":
             all_test_predictions_by_fold[fold_index], perf_list, model_name_prefix, spearmans = main(args)
             all_test_predictions_across_folds['mutated_sequence'] += list(all_test_predictions_by_fold[fold_index]['mutated_sequence'])
             for target_name in target_names:
-                all_test_predictions_across_folds['fold_standardized_predictions_'+target_name] += list(standardize(all_test_predictions_by_fold[fold_index]['predictions_'+target_name]))
+                if args.target_config[target_name]["dim"]==1: all_test_predictions_across_folds['fold_standardized_predictions_'+target_name] += list(standardize(all_test_predictions_by_fold[fold_index]['predictions_'+target_name]))
                 all_test_predictions_across_folds['predictions_'+target_name] += list(all_test_predictions_by_fold[fold_index]['predictions_'+target_name])
                 all_test_predictions_across_folds['labels_'+target_name] += list(all_test_predictions_by_fold[fold_index]['labels_'+target_name])
                 spearmans_across_folds[target_name].append(spearmans[target_name])
