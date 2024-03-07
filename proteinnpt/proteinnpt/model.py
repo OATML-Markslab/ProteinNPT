@@ -384,7 +384,7 @@ class ProteinNPTModel(nn.Module):
                     if self.args.target_config[target_name]["type"]=="continuous":
                         tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets]) #we do not average the loss per batch, so that it's easier to do 1 full average across all batches
                     else:
-                        tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1)) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
+                        tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1).long()) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
                 if torch.isnan(tgt_loss).sum() > 0:
                     print("Detected nan loss")
                     print(target_predictions[target_name])
