@@ -79,7 +79,8 @@ class MSA_processing:
 
         # Fill in the instance variables
         self.gen_alignment()
-        
+
+        # Note: One-hot encodings might take up huge amounts of memory, and this could be skipped in many use cases
         print("One-hot encoding sequences")
         self.one_hot_encoding = one_hot_3D(
             seq_keys=self.seq_name_to_sequence.keys(),  # Note: Dicts are unordered for python < 3.6
@@ -156,7 +157,7 @@ class MSA_processing:
         
         print("Number of sequences after preprocessing:", len(self.seq_name_to_sequence))
 
-# Using staticmethod to keep this under the MSAProcessing namespace, but this is apparently not best practice
+    # Using staticmethod to keep this under the MSAProcessing namespace, but this is apparently not best practice
     @staticmethod
     def preprocess_msa(seq_name_to_sequence, focus_seq_name, threshold_sequence_frac_gaps, threshold_focus_cols_frac_gaps):
         """Remove inadequate columns and sequences from MSA, overwrite self.seq_name_to_sequence."""
@@ -193,8 +194,10 @@ class MSA_processing:
         msa_df = msa_df[seq_below_threshold]
         # Overwrite seq_name_to_sequence with clean version
         seq_name_to_sequence = defaultdict(str)
-        for seq_idx in range(len(msa_df['sequence'])):
-            seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence[seq_idx]
+        # Create a dictionary from msa_df.index to msa_df.sequence
+        seq_name_to_sequence = dict(zip(msa_df.index, msa_df.sequence))
+        # for seq_idx in range(len(msa_df['sequence'])):
+        #     seq_name_to_sequence[msa_df.index[seq_idx]] = msa_df.sequence[seq_idx]
 
         return seq_name_to_sequence
 
@@ -249,11 +252,10 @@ class MSA_processing:
             self.seq_name_to_weight[seq_name]=self.weights[i]
 
         print ("Data Shape =",self.one_hot_encoding.shape)
-        print("Tmp Lood: weights shape:", self.weights.shape)
         assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
         
         if self.weights_calc_method == "eve":
-            print("Num sequences: ", self.num_sequences)
+            print("Number of sequences: ", self.num_sequences)
         else:
             print("Data Shape =", self.one_hot_encoding.shape)
 
@@ -322,6 +324,8 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
     MSA_other_sequences=[]
     weights=[]
     MSA_reference_sequence=[]
+    
+    # Removes the WT sequences
     for seq_name in processed_MSA.raw_seq_name_to_sequence.keys():
         if seq_name == processed_MSA.focus_seq_name:
             MSA_reference_sequence.append((seq_name,processed_MSA.raw_seq_name_to_sequence[seq_name]))
@@ -330,9 +334,12 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
             if seq_name in processed_MSA.seq_name_to_weight: 
                 MSA_other_sequences.append((seq_name,processed_MSA.raw_seq_name_to_sequence[seq_name]))
                 weights.append(processed_MSA.seq_name_to_weight[seq_name])
+    
     if len(MSA_other_sequences)>0:
+        # Re-weight the non-wt sequences to sum to 1
         MSA_non_ref_sequences_weights = np.array(weights) / np.array(list(processed_MSA.seq_name_to_weight.values())).sum()
         print("Check sum weights MSA: "+str(np.array(weights).sum()))
+    
     MSA_all_sequences = MSA_reference_sequence + MSA_other_sequences
     return MSA_all_sequences, MSA_non_ref_sequences_weights
 
@@ -359,6 +366,12 @@ def process_MSA(MSA_data_folder, MSA_weight_data_folder, MSA_filename, MSA_weigh
     Filter an MSA according to sequence identity (for e.g. MSATransformer) and then compute sequence weights
     """
     filtered_MSA_filename = filter_msa(filename=MSA_data_folder + os.sep + MSA_filename, path_to_hhfilter=path_to_hhfilter)
+    hhfiltered_weights_folder = os.path.join(MSA_weight_data_folder, "hhfiltered")
+    if not os.path.exists(hhfiltered_weights_folder):
+        # To be safe, this will not create the parent weights directory if it does not already exist.
+        # To create intermediate directories, we would use os.makedirs()
+        os.mkdir(hhfiltered_weights_folder)
+        
     MSA_all_sequences, MSA_non_ref_sequences_weights = compute_sequence_weights(MSA_filename=filtered_MSA_filename, MSA_weights_filename=os.path.join(MSA_weight_data_folder, "hhfiltered", MSA_weights_filename))
     return MSA_all_sequences, MSA_non_ref_sequences_weights
 

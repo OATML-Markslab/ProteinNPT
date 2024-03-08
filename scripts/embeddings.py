@@ -22,10 +22,42 @@ from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
 from proteinnpt.utils.msa_utils import weighted_sample_MSA, process_MSA, align_new_sequences_to_msa
 from proteinnpt.utils.data_utils import collate_fn_protein_npt, slice_sequences
 
-def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, num_MSA_sequences=None, eval_mode = True, start_idx=1, indel_mode=False, fast_MSA_mode=False, fast_MSA_aligned_sequences=None, fast_MSA_short_names_mapping=None, clustalomega_path=None):
-    if args.model_type in ["MSA_Transformer","ESM1v"]:
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Extract embeddings')
+    parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
+    parser.add_argument('--assay_index', default=0, type=int, help='Index of assay in the ProteinGym reference file to compute embeddings for')
+    parser.add_argument('--input_data_location', default=None, type=str, help='Location of input data with all mutated sequences [If a reference file is used, this is the location where are assays are stored. If a single csv file is passed, this is the full path to that assay data]')
+    parser.add_argument('--output_data_location', default=None, type=str, help='Location of output embeddings')
+    parser.add_argument('--model_type', default='Tranception', type=str, help='Model type to compute embeddings with')
+    parser.add_argument('--model_location', default=None, type=str, help='Location of model used to embed protein sequences')
+    parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
+    parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]')
+    parser.add_argument('--batch_size', default=32, type=int, help='Eval batch size')
+    parser.add_argument('--indel_mode', action='store_true', help='Use this mode if extracting embeddings of indel assays')
+    parser.add_argument('--half_precision', action='store_true', help='Store embeddings as 16-bit floating point numbers (float16)')
+    #MSA specific parameters (only relevant for MSA Transformer)
+    parser.add_argument('--num_MSA_sequences', default=1000, type=int, help='Num MSA sequences to score each sequence with')
+    parser.add_argument('--MSA_data_folder', default=None, type=str, help='Folder where all MSAs are stored')
+    parser.add_argument('--MSA_weight_data_folder', default=None, type=str, help='Folder where MSA sequence weights are stored (for diversity sampling of MSAs)')
+    parser.add_argument('--path_to_hhfilter', default=None, type=str, help='Path to hhfilter (for filtering MSAs)')
+    parser.add_argument('--path_to_clustalomega', default=None, type=str, help='Path to clustal omega (to re-align sequences in indel assays) [indels only]')
+    parser.add_argument('--fast_MSA_mode', action='store_true', help='Use this mode to speed up embedding extraction for MSA Transformer by scoring multiple mutated sequences (batch_size of them) at once (has minor impact on quality)')
+    #If not using a reference file
+    parser.add_argument('--target_seq', default=None, type=str, help='Wild type sequence mutated in the assay (to be provided if not using a reference file)')
+    parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (.a2m)')
+    parser.add_argument('--weight_file_name', default=None, type=str, help='Name of weight file')
+    parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
+    parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
+    return parser.parse_args()
+
+model_type_options = ["MSA_Transformer", "ESM1v", "Tranception"]
+
+def process_embeddings_batch(batch, model, model_type, alphabet, device, max_positions, long_sequences_slicing_method, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, num_MSA_sequences=None, eval_mode = True, start_idx=1, indel_mode=False, fast_MSA_mode=False, fast_MSA_aligned_sequences=None, fast_MSA_short_names_mapping=None, clustalomega_path=None):
+    if model_type in ["MSA_Transformer","ESM1v"]:
         raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1]) #Selects the first mutant-seq pair, and the sequence is 1-indexed in that pair
-        raw_batch_size = len(batch['mutant_mutated_seq_pairs']) # Effective number of mutated sequences to be scored (could be lower than args.num_MSA_sequences in practice, eg., if we're at the end of the train_iterator)
+        raw_batch_size = len(batch['mutant_mutated_seq_pairs']) # Effective number of mutated sequences to be scored (could be lower than num_MSA_sequences in practice, eg., if we're at the end of the train_iterator)
         # If model is MSAT and MSA does not cover full sequence length, we chop off all sequences to be scored as needed so that everything lines up properly.
         if (model_type == "MSA_Transformer") and (MSA_start_position is not None) and (MSA_end_position is not None) and ((MSA_start_position > 1) or (MSA_end_position < raw_sequence_length)):
             MSA_start_index = MSA_start_position - 1
@@ -33,7 +65,7 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
             batch['mutant_mutated_seq_pairs'] = [ (mutant,seq[MSA_start_index:MSA_end_index]) for (mutant,seq) in batch['mutant_mutated_seq_pairs']]
             # Recompute sequence length (has potentially been chopped off above)
             raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1])
-        #Sample MSA sequences
+        # Sample MSA sequences
         if model_type == "MSA_Transformer":
             assert MSA_weights is not None, "Trying to add MSA_sequences to scoring batch but no weights are provided"
             if model.MSA_sample_sequences is None:
@@ -45,24 +77,24 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
             # Concatenate MSA sequences with labelled assay sequences
             batch['mutant_mutated_seq_pairs'] += model.MSA_sample_sequences
         # Slice sequences around mutation if sequence longer than context length
-        if args.max_positions is not None and raw_sequence_length + 1 > args.max_positions: # Adding one for the BOS token
-            if args.long_sequences_slicing_method=="center" and args.model_type in ["MSA_Transformer"]:
+        if max_positions is not None and raw_sequence_length + 1 > max_positions: # Adding one for the BOS token
+            if long_sequences_slicing_method=="center" and model_type in ["MSA_Transformer"]:
                 print("Center slicing method not adapted to PNPT embeddings as sequences would not be aligned in the same system anymore. Defaulting to 'left' mode.")
-                args.long_sequences_slicing_method="left"
+                long_sequences_slicing_method="left"
             batch['mutant_mutated_seq_pairs'], batch_target_labels, _ = slice_sequences(
                 list_mutant_mutated_seq_pairs = batch['mutant_mutated_seq_pairs'], 
-                max_positions=args.max_positions,
-                method=args.long_sequences_slicing_method,
-                rolling_overlap=args.max_positions//4,
+                max_positions=max_positions,
+                method=long_sequences_slicing_method,
+                rolling_overlap=max_positions//4,
                 eval_mode=eval_mode,
                 batch_target_labels=None, 
                 start_idx=start_idx,
                 target_names=None
             )
         # Tokenize protein sequences
-        if args.model_type=="MSA_Transformer": 
+        if model_type=="MSA_Transformer": 
             #Re-organize list of sequences to have training_num_assay_sequences_per_batch_per_gpu MSA batches, where in each the sequence to score is the first and the rest are the sampled MSA sequences.
-            num_sequences = raw_batch_size + args.num_MSA_sequences
+            num_sequences = raw_batch_size + num_MSA_sequences
             assert len(batch['mutant_mutated_seq_pairs']) == num_sequences, "Unexpected number of sequences"
             sequences_to_score = batch['mutant_mutated_seq_pairs'][:raw_batch_size]
             MSA_sequences = batch['mutant_mutated_seq_pairs'][raw_batch_size:]
@@ -85,7 +117,7 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
                 batch['mutant_mutated_seq_pairs'] = [ [sequence] + MSA_sequences for sequence in sequences_to_score]    
         token_batch_converter = alphabet.get_batch_converter()
         batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])    
-        if args.model_type!="MSA_Transformer": 
+        if model_type!="MSA_Transformer": 
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = batch_token_sequences.size()
             batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen) #drop the dummy batch dimension from the tokenizer when not using MSAT
         batch_token_sequences = batch_token_sequences.to(device)
@@ -93,12 +125,17 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, MSA_seq
             'input_tokens': batch_token_sequences,
             'mutant_mutated_seq_pairs': batch['mutant_mutated_seq_pairs']
         }
-    elif args.model_type=="Tranception":
+    elif model_type=="Tranception":
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(model.device)
         processed_batch = batch
+    else:
+        print("Model type has to be one of 'Tranception'|'MSA_Transformer'|'ESM1v'")
+        return None
+    
     return processed_batch
+
 
 def main(
     assay_reference_file_location=None,
@@ -127,8 +164,10 @@ def main(
     ):
     
     if not use_cpu and not torch.cuda.is_available():
-        print("CUDA not available. This script is intended to run on a GPU, to use a CPU run with --use_cpu")
-        return
+        print("Error: CUDA not available. This script is intended to run on a GPU, to use a CPU run with --use_cpu")
+        exit(1)
+    elif use_cpu and torch.cuda.is_available():
+        print("Note: CUDA is available, but will not be used because --use_cpu is specified. To use the GPU, remove the --use_cpu flag.")
     
     assert (indel_mode and not fast_MSA_mode and batch_size==1) or (fast_MSA_mode and model_type=="MSA_Transformer") or (not indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
 
@@ -266,12 +305,14 @@ def main(
                                 batch = batch,
                                 model = model,
                                 model_type = model_type,
-                                alphabet = alphabet, 
+                                alphabet = alphabet,
                                 MSA_sequences = MSA_sequences, 
                                 MSA_weights = MSA_weights,
                                 MSA_start_position = MSA_start_position, 
                                 MSA_end_position = MSA_end_position,
                                 num_MSA_sequences = num_MSA_sequences,
+                                max_positions = max_positions,
+                                long_sequences_slicing_method = long_sequences_slicing_method,
                                 device = next(model.parameters()).device,
                                 eval_mode=True,
                                 indel_mode=indel_mode,
@@ -368,35 +409,6 @@ def main(
     with h5py.File(output_embeddings_path, 'w') as h5f:
         for key, value in embeddings_dict.items():
             h5f.create_dataset(key, data=value)
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='Extract embeddings')
-    parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
-    parser.add_argument('--assay_index', default=0, type=int, help='Index of assay in the ProteinGym reference file to compute embeddings for')
-    parser.add_argument('--input_data_location', default=None, type=str, help='Location of input data with all mutated sequences [If a reference file is used, this is the location where are assays are stored. If a single csv file is passed, this is the full path to that assay data]')
-    parser.add_argument('--output_data_location', default=None, type=str, help='Location of output embeddings')
-    parser.add_argument('--model_type', default='Tranception', type=str, help='Model type to compute embeddings with')
-    parser.add_argument('--model_location', default=None, type=str, help='Location of model used to embed protein sequences')
-    parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
-    parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]')
-    parser.add_argument('--batch_size', default=32, type=int, help='Eval batch size')
-    parser.add_argument('--indel_mode', action='store_true', help='Use this mode if extracting embeddings of indel assays')
-    parser.add_argument('--half_precision', action='store_true', help='Store embeddings as 16-bit floating point numbers (float16)')
-    #MSA specific parameters (only relevant for MSA Transformer)
-    parser.add_argument('--num_MSA_sequences', default=1000, type=int, help='Num MSA sequences to score each sequence with')
-    parser.add_argument('--MSA_data_folder', default=None, type=str, help='Folder where all MSAs are stored')
-    parser.add_argument('--MSA_weight_data_folder', default=None, type=str, help='Folder where MSA sequence weights are stored (for diversity sampling of MSAs)')
-    parser.add_argument('--path_to_hhfilter', default=None, type=str, help='Path to hhfilter (for filtering MSAs)')
-    parser.add_argument('--path_to_clustalomega', default=None, type=str, help='Path to clustal omega (to re-align sequences in indel assays) [indels only]')
-    parser.add_argument('--fast_MSA_mode', action='store_true', help='Use this mode to speed up embedding extraction for MSA Transformer by scoring multiple mutated sequences (batch_size of them) at once (has minor impact on quality)')
-    #If not using a reference file
-    parser.add_argument('--target_seq', default=None, type=str, help='Wild type sequence mutated in the assay (to be provided if not using a reference file)')
-    parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (.a2m)')
-    parser.add_argument('--weight_file_name', default=None, type=str, help='Name of weight file')
-    parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
-    parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
-    parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
-    return parser.parse_args()
 
 
 if __name__ == "__main__":
