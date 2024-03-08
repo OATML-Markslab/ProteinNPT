@@ -230,12 +230,23 @@ def main(args):
         MSA_start_position = args.MSA_start
         MSA_end_position = args.MSA_end
     train_data, val_data, test_data, target_processing = get_train_val_test_data(args = args, assay_file_names = assay_file_names)
-    MSA_sequences, MSA_weights = process_MSA(args, MSA_filename, MSA_weights_filename) if args.aa_embeddings=="MSA_Transformer" else (None, None)
+    if args.aa_embeddings == "MSA_Transformer":
+        MSA_sequences, MSA_weights = process_MSA(
+            MSA_data_folder=args.MSA_data_folder, 
+            MSA_weight_data_folder=args.MSA_weight_data_folder, 
+            MSA_filename=MSA_filename, 
+            MSA_weights_filename=MSA_weights_filename, 
+            path_to_hhfilter=args.path_to_hhfilter
+        )
+    else:
+        MSA_sequences = None
+        MSA_weights = None
     
     if args.use_wandb:
         combined_dict = {**vars(args), "parameter_count": sum(p.numel() for p in model.parameters()), "assay_id": assay_id, "UniProt_id": UniProt_id}
         wandb.init(project=os.getenv("WANDB_PROJECT"), config=combined_dict, name=model_name, dir=args.wandb_location, save_code=True)
     
+    print("tmp: Starting training")
     # Define trainer
     trainer = Trainer(
             model= model,
@@ -266,7 +277,7 @@ def main(args):
     print('Final training step: {} | Num training epochs: {} | Total train time: {} hrs'.format(trainer_final_status['total_training_steps'], trainer_final_status['total_training_epochs'], str(trainer_final_status['total_train_time'] / 3600)))
 
     # Eval performance on test set & log to wandb & persist predictions / performance to disk
-    if args.model_type=="ProteinNPT":
+    if args.model_type == "ProteinNPT":
             test_eval_results = trainer.eval(
                 test_data=test_data,
                 train_data=train_data,
@@ -330,7 +341,7 @@ if __name__ == "__main__":
     #Model parameters
     parser.add_argument('--model_type', default=None, type=str, help='Model type')
     parser.add_argument('--model_name_suffix', default=None, type=str, help='Suffix to reference model')
-    parser.add_argument('--sequence_embeddings_folder', default=None, type=str, help='Location of stored embeddings on disk')
+    parser.add_argument('--sequence_embeddings_folder', required=True, type=str, help='Location of stored embeddings on disk')
     parser.add_argument('--embedding_model_location', default=None, type=str, help='Location of model used to embed protein sequences')
     parser.add_argument('--aa_embeddings', default=None, type=str, help='Type of protein sequence embedding [MSA_Transformer|Tranception|ESM1v|Linear_embedding]')
     parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]. We do not slice OHE input')
@@ -385,7 +396,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     setup_config_and_paths(args)
-    print(args.embedding_model_location)
+    print("Embeddings folder:", args.embedding_model_location)
 
     if (args.MSA_start is None) or (args.MSA_end is None):
         if args.MSA_location is not None: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")

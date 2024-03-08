@@ -31,6 +31,7 @@ class MSA_processing:
         remove_sequences_with_indeterminate_AA_in_focus_cols=True,
         weights_calc_method="eve",
         num_cpus=1,
+        skip_one_hot_encodings=False,
         ):
         
         """
@@ -55,6 +56,8 @@ class MSA_processing:
         - remove_sequences_with_indeterminate_AA_in_focus_cols: (bool) Remove all sequences that have indeterminate AA (e.g., B, J, X, Z) at focus positions of the wild type
         - weights_calc_method: (str) Method to use for calculating sequence weights. Options: "eve" or "identity". (default "eve")
         - num_cpus: (int) Number of CPUs to use for parallel weights calculation processing. If set to -1, all available CPUs are used. If set to 1, weights are computed in serial.
+        - skip_one_hot_encodings: (bool) If True, only use this class to calculate weights. Skip the one-hot encodings (which can be very memory/compute intensive)
+            and don't calculate all singles.
         """
         np.random.seed(2021)
         self.MSA_location = MSA_location
@@ -67,6 +70,7 @@ class MSA_processing:
         self.threshold_focus_cols_frac_gaps = threshold_focus_cols_frac_gaps
         self.remove_sequences_with_indeterminate_AA_in_focus_cols = remove_sequences_with_indeterminate_AA_in_focus_cols
         self.weights_calc_method = weights_calc_method
+        self.skip_one_hot_encodings = skip_one_hot_encodings
 
         # Defined by gen_alignment
         self.aa_dict = {}
@@ -81,13 +85,16 @@ class MSA_processing:
         self.gen_alignment()
 
         # Note: One-hot encodings might take up huge amounts of memory, and this could be skipped in many use cases
-        print("One-hot encoding sequences")
-        self.one_hot_encoding = one_hot_3D(
-            seq_keys=self.seq_name_to_sequence.keys(),  # Note: Dicts are unordered for python < 3.6
-            seq_name_to_sequence=self.seq_name_to_sequence,
-            alphabet=self.alphabet,
-            seq_length=self.seq_len,
-        )
+        if not self.skip_one_hot_encodings:
+            print("One-hot encoding sequences")
+            self.one_hot_encoding = one_hot_3D(
+                seq_keys=self.seq_name_to_sequence.keys(),  # Note: Dicts are unordered for python < 3.6
+                seq_name_to_sequence=self.seq_name_to_sequence,
+                alphabet=self.alphabet,
+                seq_length=self.seq_len,
+            )
+            print ("Data Shape =", self.one_hot_encoding.shape)
+            
         self.calc_weights(num_cpus=num_cpus, method=weights_calc_method)
 
     def gen_alignment(self):
@@ -156,6 +163,7 @@ class MSA_processing:
                 del self.seq_name_to_sequence[seq_name]
         
         print("Number of sequences after preprocessing:", len(self.seq_name_to_sequence))
+        self.num_sequences = len(self.seq_name_to_sequence.keys())
 
     # Using staticmethod to keep this under the MSAProcessing namespace, but this is apparently not best practice
     @staticmethod
@@ -242,23 +250,14 @@ class MSA_processing:
             self.weights = np.ones(self.one_hot_encoding.shape[0])
 
         self.Neff = np.sum(self.weights)
-        self.num_sequences = self.weights.shape[0]
-
         print("Neff =", str(self.Neff))
+        print("Number of sequences: ", self.num_sequences)
         
-        self.num_sequences = self.one_hot_encoding.shape[0]
+        assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
         self.seq_name_to_weight={}  # For later, if we want to remove certain sequences and associated weights
         for i,seq_name in enumerate(self.seq_name_to_sequence.keys()):
             self.seq_name_to_weight[seq_name]=self.weights[i]
-
-        print ("Data Shape =",self.one_hot_encoding.shape)
-        assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
         
-        if self.weights_calc_method == "eve":
-            print("Number of sequences: ", self.num_sequences)
-        else:
-            print("Data Shape =", self.one_hot_encoding.shape)
-
         return self.weights
 
 # One-hot encoding of sequences

@@ -13,4 +13,5 @@ ProteinNPT_data/
 # Weights
 *.npy
 # Reference files
-!proteinnpt/*.csv
+!proteinnpt/*.csv  
+.idea/
