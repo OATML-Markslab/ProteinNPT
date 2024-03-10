@@ -144,7 +144,7 @@ def log_performance_all_folds(args,target_names,all_test_predictions_across_fold
                 spearman_standardized = pnpt_spearmanr(all_test_predictions_across_folds['fold_standardized_predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
             else:
                 predictions_np = np.array([np.array(pred, dtype=np.float32) for pred in all_test_predictions_across_folds['predictions_'+target_name][~missing_mask]])
-                loss = CrossEntropyLoss(reduction="mean")(torch.tensor(predictions_np).view(-1, args.target_config[target_name]["dim"]), torch.tensor(all_test_predictions_across_folds['labels_'+target_name][~missing_mask]).view(-1)).item()
+                loss = CrossEntropyLoss(reduction="mean")(torch.tensor(predictions_np).view(-1, args.target_config[target_name]["dim"]), torch.tensor(all_test_predictions_across_folds['labels_'+target_name][~missing_mask]).view(-1).long()).item()
                 loss_standardized = None
                 spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name].apply(lambda x: x[-1]), all_test_predictions_across_folds['labels_'+target_name])
                 spearman_standardized = None 

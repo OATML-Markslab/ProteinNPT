@@ -109,16 +109,6 @@ class MSA_processing:
         self.seq_len = len(self.focus_cols)
         self.alphabet_size = len(self.alphabet)
 
-        # Connect local sequence index with uniprot index (index shift inferred from 1st row of MSA)
-        focus_loc = self.focus_seq_name.split("/")[-1]
-        start,stop = focus_loc.split("-")
-        self.focus_start_loc = int(start)
-        self.focus_stop_loc = int(stop)
-        self.uniprot_focus_col_to_wt_aa_dict \
-            = {idx_col+int(start):self.focus_seq[idx_col] for idx_col in self.focus_cols} 
-        self.uniprot_focus_col_to_focus_idx \
-            = {idx_col+int(start):idx_col for idx_col in self.focus_cols} 
-
         # Move all letters to CAPS; keeps focus columns only
         self.raw_seq_name_to_sequence = self.seq_name_to_sequence.copy()
         for seq_name,sequence in self.seq_name_to_sequence.items():
