@@ -1,6 +1,6 @@
 # ProteinNPT
 
-This is the official code repository for the paper ["ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers"](https://www.biorxiv.org/content/10.1101/2023.12.06.570473v1)
+This is the official code repository for the paper ["ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers"](https://papers.nips.cc/paper_files/paper/2023/hash/6a4d5d85f7a52f062d23d98d544a5578-Abstract-Conference.html)
 
 ## Overview
 ProteinNPT is a semi-supervised conditional pseudo-generative model for protein property prediction and design.
@@ -59,8 +59,8 @@ We also provide an example script to train a ProteinNPT or baseline model to pre
 ### Pipeline
 Run `pipeline.sh` to perform all 3 steps described above sequentially. For ProteinNPT, only 3 parameters are required:
 - `assay_data_location` --> full path to the assay you want to train/test on (expects a `.csv` file). At a minimum this file requires 2 fields: mutated_sequence (full sequence of amino acids) and DMS_score (assay measurement). If no fold variable is included in the assay file, the pipeline script will automatically create a fold_random_5 variable, assigning each mutant to folds 0-4 at random. You may also use your own cross-validation scheme (eg., assign all training sequences to fold 0, all test sequences to fold 1). To that end, you only need to pass to the pipeline script the name of that fold variable via the `fold_variable_name` argument and specify the index of the test fold via the `test_fold_index` argument (if `test_fold_index` is not passed as argument, the script will automatically perform a full cross-validation, rotating the test fold index at each iteration).
-- `MSA_location` --> full path to the MSA to be used to compute MSA Transformer embeddings in ProteinNPT (optional for ESM1v baselines)
-- `target_seq` --> wild type sequence that is mutated in the experimental assay
+- `MSA_location` --> full path to the MSA (in .a2m format) to be used to compute MSA Transformer embeddings in ProteinNPT (optional for ESM1v baselines). 
+- `target_seq` --> wild type sequence that is mutated in the experimental assay.
 Please refer to the argsparse parameter description for more details on optional parameters.
 
 ## License
@@ -73,18 +73,22 @@ The `utils` in this codebase leverage code from:
 - hhfilter (from the [hhsuite](https://github.com/soedinglab/hh-suite))
 - [clustal-omega](http://www.clustal.org/omega/)
 
+## Links
+- NeurIPS proceedings: https://papers.nips.cc/paper_files/paper/2023/hash/6a4d5d85f7a52f062d23d98d544a5578-Abstract-Conference.html
+- Preprint: https://www.biorxiv.org/content/10.1101/2023.12.06.570473v1
+
 ## References
 If you use this codebase, please cite the following paper:
 ```bibtex
-@article {Notin2023.12.06.570473,
-	author = {Pascal Notin and Ruben Weitzman and Debora S Marks and Yarin Gal},
-	title = {ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers},
-	elocation-id = {2023.12.06.570473},
-	year = {2023},
-	doi = {10.1101/2023.12.06.570473},
-	publisher = {Cold Spring Harbor Laboratory},
-	URL = {https://www.biorxiv.org/content/early/2023/12/07/2023.12.06.570473},
-	eprint = {https://www.biorxiv.org/content/early/2023/12/07/2023.12.06.570473.full.pdf},
-	journal = {bioRxiv}
+@inproceedings{NEURIPS2023_6a4d5d85,
+ author = {Notin, Pascal and Weitzman, Ruben and Marks, Debora and Gal, Yarin},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {A. Oh and T. Neumann and A. Globerson and K. Saenko and M. Hardt and S. Levine},
+ pages = {33529--33563},
+ publisher = {Curran Associates, Inc.},
+ title = {ProteinNPT: Improving Protein Property Prediction and Design with Non-Parametric Transformers},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2023/file/6a4d5d85f7a52f062d23d98d544a5578-Paper-Conference.pdf},
+ volume = {36},
+ year = {2023}
 }
 ```

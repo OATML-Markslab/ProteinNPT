@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import tempfile
+from tqdm import tqdm
+from numba import njit, prange
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
@@ -286,6 +288,26 @@ def get_num_cpus():
         num_cpus = len(os.sched_getaffinity(0)) 
         print("Using all available cores (calculated using len(os.sched_getaffinity(0))):", num_cpus)
     return num_cpus
+
+@njit
+def compute_weight(seq, list_seq, theta):
+    number_non_empty_positions = np.dot(seq, seq)
+    if number_non_empty_positions > 0:
+        denom = np.dot(list_seq, seq) / number_non_empty_positions
+        denom = np.sum(denom > 1 - theta)
+        return 1 / denom
+    else:
+        return 0.0  # return 0 weight if sequence is fully empty
+
+def compute_weight_all(list_seq, theta, updated_freq=100):
+    list_seq = np.array(list_seq)  # Assuming list_seq is convertible to a numpy array
+    final_results = np.zeros(len(list_seq))
+    pbar = tqdm(total=len(list_seq), desc="Computing weights")
+    for i in prange(len(list_seq)):
+        final_results[i] = compute_weight(list_seq[i], list_seq, theta)
+        if i%updated_freq==0: pbar.update(updated_freq)
+    pbar.close()
+    return final_results
 
 def filter_msa(filename, path_to_hhfilter, hhfilter_min_cov=75, hhfilter_max_seq_id=90, hhfilter_min_seq_id=0):
     """
