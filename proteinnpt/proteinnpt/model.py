@@ -89,7 +89,7 @@ class ProteinNPTModel(nn.Module):
                 if self.args.target_config[target_name]["type"]=="continuous"
                 else 
                 nn.Embedding(
-                    self.args.target_config[target_name]["dim"],
+                    self.args.target_config[target_name]["dim"] + 1, #Size of the dictionary of embeddings. Need to add 1 for the mask flag as well
                     self.args.embed_dim
                 )
                 for target_name in self.target_names_input
@@ -238,7 +238,11 @@ class ProteinNPTModel(nn.Module):
         #Dimensions for each target (there are self.num_targets of them):
         y = []
         for target_name in self.target_names_input:
-            num_sequences_with_target, dim_targets = targets[target_name].shape # N, D_t #In most cases dim_targets = D_t = 2 (original dimension of continuous input + 1 dim for mask)
+            if self.args.target_config[target_name]["type"]=="continuous":
+                num_sequences_with_target, dim_targets = targets[target_name].shape # N, D_t #In most cases dim_targets = D_t = 2 (original dimension of continuous input + 1 dim for mask)
+            else:
+                num_sequences_with_target = targets[target_name].shape[0] #Input categorical targets is unidmensional ie a vector of category indices
+                targets[target_name] = targets[target_name].long() #Ensure we cast to integer before passing to Embedding layer for categorical targets
             y.append(self.target_embedding[target_name](targets[target_name]).view(num_sequences_with_target,1,self.args.embed_dim))
         y = torch.cat(y, dim=-2) #concatenate across second to last dimension # N, num_targets, D
         assert y.shape == (num_sequences_with_target, self.num_targets_input, self.args.embed_dim), "Error in y shape: {}".format(y.shape)
@@ -380,7 +384,7 @@ class ProteinNPTModel(nn.Module):
                     if self.args.target_config[target_name]["type"]=="continuous":
                         tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets]) #we do not average the loss per batch, so that it's easier to do 1 full average across all batches
                     else:
-                        tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1)) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
+                        tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1).long()) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
                 if torch.isnan(tgt_loss).sum() > 0:
                     print("Detected nan loss")
                     print(target_predictions[target_name])
