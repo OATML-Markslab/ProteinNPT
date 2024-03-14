@@ -102,12 +102,12 @@ if __name__ == "__main__":
     assay_data.to_csv(args.assay_data_location,index=False)
 
     if args.sequence_embeddings_folder is None:
-        args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings" + os.sep + model_config['aa_embeddings']  # TODO this should be specific to subs_singles or whatever
+        # Note: This is different to where embeddings are stored when only doing e.g. single_subs or indels
+        args.sequence_embeddings_folder = args.proteinnpt_data_location + os.sep + "data" + os.sep + "embeddings" + os.sep + model_config['aa_embeddings']
     else:
         if not os.path.exists(args.sequence_embeddings_folder): os.mkdir(args.sequence_embeddings_folder)
         args.sequence_embeddings_folder = args.sequence_embeddings_folder + os.sep + model_config['aa_embeddings']
     embeddings_location = args.sequence_embeddings_folder + os.sep + DMS_id + ".h5"
-    print("tmp embeddings location: {}".format(embeddings_location))
     if args.MSA_weights_folder is None:
         args.MSA_weights_folder = args.proteinnpt_data_location + os.sep + "data/MSA/MSA_weights"
     weight_file_name = DMS_id + '_theta_' + str(args.MSA_sequence_weights_theta) + ".npy"
@@ -125,36 +125,9 @@ if __name__ == "__main__":
                     use_weights=True,
                     weights_location=MSA_sequence_weights_location
             )
-        # Embeddings computation  # TODO(Lood): Change this to call the function directly
-        # embeddings_run_parameters = "--model_type {} \
-        # --model_location {} \
-        # --input_data_location {} \
-        # --output_data_location {} \
-        # --batch_size {} \
-        # --max_positions {} \
-        # --target_seq {} ".format(
-        #     model_config['aa_embeddings'],
-        #     model_location_mapping[model_config['aa_embeddings']],
-        #     args.assay_data_location,
-        #     args.sequence_embeddings_folder,
-        #     args.batch_size,
-        #     args.max_positions,
-        #     args.target_seq
-        #     )
-        # if model_config['aa_embeddings']=="MSA_Transformer":
-        #     embeddings_run_parameters += "--num_MSA_sequences {} ".format(args.embeddings_MSAT_num_MSA_sequences)
-        #     embeddings_run_parameters += "--MSA_location {} ".format(args.MSA_location)
-        #     embeddings_run_parameters += "--MSA_weight_data_folder {} ".format(args.proteinnpt_data_location + os.sep + "data/MSA/MSA_weights")
-        #     embeddings_run_parameters += "--weight_file_name {} ".format(weight_file_name)
-        #     embeddings_run_parameters += "--path_to_hhfilter {} ".format(args.proteinnpt_data_location + os.sep + "utils/hhfilter")
-        # if args.MSA_start: embeddings_run_parameters += "--MSA_start {} ".format(args.MSA_start)
-        # if args.MSA_end: embeddings_run_parameters += "--MSA_end {} ".format(args.MSA_end)
-        # if args.indel_mode: embeddings_run_parameters += "--path_to_clustalomega {} --indel_mode ".format(args.proteinnpt_data_location + os.sep + "utils/clustal-omega")
-        # os.system("python embeddings.py "+embeddings_run_parameters)
 
         embedding_model = model_config['aa_embeddings']
         print("Using embedding model: {}".format(embedding_model))
-        print(args)
         if embedding_model == "MSA_Transformer":
             msat_kwargs = {
                 "num_MSA_sequences": args.embeddings_MSAT_num_MSA_sequences,
@@ -175,8 +148,8 @@ if __name__ == "__main__":
             MSA_start=args.MSA_start, # If not set, this will be None
             MSA_end=args.MSA_end,
             path_to_clustalomega=os.path.join(args.proteinnpt_data_location, "utils/clustal-omega") if args.indel_mode else None,
-            **msat_kwargs,
             use_cpu=args.use_cpu,
+            **msat_kwargs,
         )
 
     elif model_config['aa_embeddings'] == "One_hot_encoding":
@@ -224,7 +197,6 @@ if __name__ == "__main__":
                 --target_seq {} \
                 --msa-weights-folder {} \
                 --weight_file_name {} \
-                --path_to_clustalomega {} \
                 --seeds 1 2 3 4 5 ".format(
                         model_location_mapping[model_config['aa_embeddings']],
                         args.assay_data_location,
@@ -234,11 +206,9 @@ if __name__ == "__main__":
                         args.target_seq,
                         args.MSA_weights_folder,
                         weight_file_name,
-                        args.proteinnpt_data_location + os.sep + "utils/clustal-omega"
                     )
             if args.MSA_start: zero_shot_run_parameters += "--MSA_start {} ".format(args.MSA_start)
             if args.MSA_end: zero_shot_run_parameters += "--MSA_end {} ".format(args.MSA_end)
-            os.system("python zero_shot_fitness_esm.py "+zero_shot_run_parameters)
         elif model_config['aa_embeddings']=="ESM1v":
             zero_shot_run_parameters = "--model-location {} {} {} {} {} \
                 --model_type ESM1v \
@@ -257,7 +227,6 @@ if __name__ == "__main__":
                     args.target_seq,
                     args.ESM_zero_shot_scoring_strategy
                 )
-            os.system("python zero_shot_fitness_esm.py "+zero_shot_run_parameters)
         elif model_config['aa_embeddings']=="Tranception":
             DMS_data_folder = os.sep.join(args.assay_data_location.split(os.sep)[:-1])
             DMS_file_name = args.assay_data_location.split(os.sep)[-1]
@@ -269,7 +238,7 @@ if __name__ == "__main__":
                 --output_scores_folder {} \
                 --inference_time_retrieval \
                 --batch_size_inference {} \
-            --target_seq {} \
+                --target_seq {} \
                 --MSA_folder {} \
                 --MSA_filename {} \
                 --MSA_weights_folder {} \
@@ -287,7 +256,9 @@ if __name__ == "__main__":
             if args.MSA_start: zero_shot_run_parameters += "--MSA_start {} ".format(args.MSA_start)
             if args.MSA_end: zero_shot_run_parameters += "--MSA_end {} ".format(args.MSA_end)
             if args.indel_mode: zero_shot_run_parameters += "--indel_mode --clustal_omega_location {} ".format(args.proteinnpt_data_location + os.sep + "utils/clustal-omega")
-            os.system("python zero_shot_fitness_tranception.py "+zero_shot_run_parameters)
+
+        subprocess.run("python zero_shot_fitness_esm.py "+zero_shot_run_parameters, check=True, shell=True)
+
         #Merge zero-shot files
         merge = assay_data.copy()[['mutant','mutated_sequence']]
         merge['mutated_sequence_with_gaps'] = merge['mutated_sequence']
@@ -351,4 +322,4 @@ if __name__ == "__main__":
     if args.MSA_start: training_run_parameters += "--MSA_start {} ".format(args.MSA_start)
     if args.MSA_end: training_run_parameters += "--MSA_end {} ".format(args.MSA_end)
     if args.indel_mode: training_run_parameters += "--indel_mode"
-    os.system("python train.py "+training_run_parameters)
+    subprocess.run("python train.py "+training_run_parameters, check=True, shell=True)

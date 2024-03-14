@@ -52,7 +52,9 @@ def parse_arguments():
     parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
     return parser.parse_args()
 
+
 model_type_options = ["MSA_Transformer", "ESM1v", "Tranception"]
+
 
 def process_embeddings_batch(batch, model, model_type, alphabet, device, max_positions, long_sequences_slicing_method, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, num_MSA_sequences=None, eval_mode = True, start_idx=1, indel_mode=False, fast_MSA_mode=False, fast_MSA_aligned_sequences=None, fast_MSA_short_names_mapping=None, clustalomega_path=None):
     if model_type in ["MSA_Transformer","ESM1v"]:
@@ -243,9 +245,9 @@ def main(
     # Pre-processing over gaps in sequences: 
     # If single-sequence input model --> remove gaps everywhere
     # If MSA input (eg., MSA Transformer) --> keep all gaps and align MSA to the gaps of the first sequence (assumes the MSA was created for that first sequence without gaps). If no gaps in that first sequence we dont do anything.
-    if args.model_type in ["Tranception","ESM1v"]:
+    if model_type in ["Tranception","ESM1v"]:
         df['mutated_sequence'] = df['mutated_sequence'].apply(lambda x: x.replace("-",""))
-    elif args.model_type in ["MSA_Transformer"]:
+    elif model_type in ["MSA_Transformer"]:
         first_sequence = df['mutated_sequence'].values[0]
         dash_positions = [i for i, char in enumerate(first_sequence) if char == "-"] #Indices of gaps in first sequence to score
         if len(dash_positions)>0:
