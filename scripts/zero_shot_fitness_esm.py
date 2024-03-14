@@ -45,7 +45,6 @@ def sample_msa(filename: str, nseq: int, sampling_strategy: str, random_seed: in
                 use_weights=True,
                 weights_location=weight_filename
             )
-            print("Neff: "+str(MSA.Neff))
             print("Name of focus_seq: "+str(MSA.focus_seq_name))
         else:
             MSA = processed_msa
@@ -390,7 +389,7 @@ def main(args):
 
                 if args.scoring_strategy == "masked-marginals":
                     all_token_probs = []
-                    for i in tqdm(range(batch_tokens.size(2))):
+                    for i in tqdm(range(batch_tokens.size(2)), desc="Scoring masked-marginals"):
                         batch_tokens_masked = batch_tokens.clone()
                         batch_tokens_masked[0, 0, i] = alphabet.mask_idx  # mask out first sequence
                         if batch_tokens.size(-1) > 1024:
@@ -499,7 +498,7 @@ def main(args):
             elif args.scoring_strategy == "masked-marginals":
                 print("Scoring with masked-marginals and model {}".format(model_location))
                 all_token_probs = []
-                for i in tqdm(range(batch_tokens.size(1))):
+                for i in tqdm(range(batch_tokens.size(1)), desc="Scoring masked-marginals"):
                     batch_tokens_masked = batch_tokens.clone()
                     batch_tokens_masked[0, i] = alphabet.mask_idx
                     if batch_tokens.size(1) > 1024 and args.scoring_window=="optimal": 

@@ -15,3 +15,5 @@ ProteinNPT_data/
 # Reference files
 !proteinnpt/*.csv  
 .idea/
+notebooks/
+logs/
