@@ -1,6 +1,4 @@
-# This setup file should be run only once and will setup the conda environment and download pretrained protein models checkpoints. Only the next two lines should be updated based on your particular setup
-export proteinnpt_data_path="Replace this string with the path to the folder where you downloaded the core ProteinNPT files (ProteinNPT_data.zip)"
-export proteinnpt_repo_path="Replace this string with the path to the root of your local copy of the ProteinNPT folder"
+source config.sh  # To get the paths to $proteinnpt_data_path and $proteinnpt_repo_path
 
 # Environment setup - Conda
 conda env create -f $proteinnpt_repo_path/proteinnpt_env.yml
