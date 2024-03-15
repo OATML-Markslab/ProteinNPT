@@ -142,7 +142,7 @@ def mask_protein_sequences(inputs, alphabet, proba_aa_mask=0.15, proba_random_mu
     Adapted from HuggingFace transformers library.
     """
     labels = inputs.clone() # B, N, C
-    all_special_tokens = torch.tensor([alphabet.tok_to_idx[x] for x in alphabet.all_special_tokens + ['-']])
+    all_special_tokens = torch.tensor([alphabet.tok_to_idx[x] for x in alphabet.all_special_tokens])
     probability_tensor = torch.full(labels.shape, proba_aa_mask)
     # Ensure we do not mask any special token
     special_tokens_mask = torch.isin(labels,all_special_tokens)
