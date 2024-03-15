@@ -5,3 +5,15 @@ output
 build
 dist
 proteinnpt.egg-info
+ProteinNPT_data/
+# DMS files
+*.csv
+# Alignments
+*.a2m
+# Weights
+*.npy
+# Reference files
+!proteinnpt/*.csv  
+.idea/
+notebooks/
+logs/
