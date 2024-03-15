@@ -1,3 +1,4 @@
+import os
 import sys
 import numpy as np
 import torch
@@ -117,13 +118,14 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
 
     # Embedding loading needs to happen here to ensure we also load training sequences at eval time
     if args.sequence_embeddings_location is not None:
+        assert os.path.exists(args.sequence_embeddings_location), f"Sequence embeddings location doesn't exist: {args.sequence_embeddings_location}"
         try:
             indices_retrieved_embeddings = get_indices_retrieved_embeddings(batch,args.sequence_embeddings_location)
             assert len(indices_retrieved_embeddings)==len(batch['mutant_mutated_seq_pairs']) , "At least one embedding was missing"
             with h5py.File(args.sequence_embeddings_location, 'r') as h5f:
                 sequence_embeddings = torch.tensor(np.array([h5f['embeddings'][i] for i in indices_retrieved_embeddings])).float()
-        except:
-            print("Error loading main sequence embeddings")
+        except Exception as e:
+            print("Error loading main sequence embeddings:", e)
             sys.exit(0)
     else:
         sequence_embeddings = None

@@ -20,10 +20,72 @@ def standardization(x):
     """Assumes input is numpy array or pandas series"""
     return (x - x.mean()) / x.std()
 
-def read_msa(filename: str, nseq: int, sampling_strategy: str, random_seed: int, weight_filename: str, filter_msa: bool, path_to_hhfilter: str, hhfilter_min_cov=75, hhfilter_max_seq_id=100, hhfilter_min_seq_id=0) -> List[Tuple[str, str]]:
-    """ Reads the first nseq sequences from an MSA file, automatically removes insertions."""
+def sample_msa(filename: str, nseq: int, sampling_strategy: str, random_seed: int, weight_filename=None, processed_msa=None):
+    """Reads the first nseq sequences from an MSA file, automatically removes insertions."""
     print("Sampling sequences from MSA with strategy: "+str(sampling_strategy))
     random.seed(random_seed)
+    if sampling_strategy=='first_x_rows':
+        msa = [
+            (record.description, str(record.seq))
+            for record in itertools.islice(SeqIO.parse(filename, "fasta"), nseq)
+        ]
+    elif sampling_strategy=='random':
+        msa = [
+            (record.description, str(record.seq)) for record in SeqIO.parse(filename, "fasta")
+        ]
+        nseq = min(len(msa),nseq)
+        msa = random.sample(msa, nseq)
+    elif sampling_strategy=='sequence-reweighting':
+        # If MSA has already been processed, just use it here
+        if processed_msa is None:
+            if weight_filename is None:
+                print("Need weight filename if using sequence-reweighting sample strategy")
+            MSA = MSA_processing(
+                MSA_location=filename,
+                use_weights=True,
+                weights_location=weight_filename
+            )
+            print("Name of focus_seq: "+str(MSA.focus_seq_name))
+        else:
+            MSA = processed_msa
+
+        weights=[]
+        msa=[]
+
+        # Make sure we always keep the WT in the subsampled MSA
+        msa = [(MSA.focus_seq_name,MSA.raw_seq_name_to_sequence[MSA.focus_seq_name])]
+
+        non_wt_weights = np.array([w for k, w in MSA.seq_name_to_weight.items() if k != MSA.focus_seq_name])
+        non_wt_sequences = [(k, s) for k, s in MSA.seq_name_to_sequence.items() if k != MSA.focus_seq_name]
+        non_wt_weights = non_wt_weights / non_wt_weights.sum() # Renormalize weights
+
+        # Sample the rest of the MSA according to their weights
+        if len(non_wt_sequences) > 0:
+            msa.extend(random.choices(non_wt_sequences, weights=non_wt_weights, k=nseq-1))
+
+        # This is intended to filter out weights, but after hhfiltering our msa is already the correct set
+        # for seq_name in MSA.raw_seq_name_to_sequence.keys():
+        #     if seq_name == MSA.focus_seq_name:
+        #         msa.append((seq_name,MSA.raw_seq_name_to_sequence[seq_name]))
+        #         del MSA.seq_name_to_weight[seq_name]
+        #     else:
+        #         if seq_name in MSA.seq_name_to_weight:
+        #             all_sequences_msa.append((seq_name,MSA.raw_seq_name_to_sequence[seq_name]))
+        #             weights.append(MSA.seq_name_to_weight[seq_name])
+        # if len(all_sequences_msa)>0:
+        #     weights = np.array(weights) / np.array(list(MSA.seq_name_to_weight.values())).sum()
+        #     print("Check sum weights MSA: "+str(weights.sum()))
+        #     msa.extend(random.choices(all_sequences_msa, weights=weights, k=nseq-1))
+
+        print("Check sum weights MSA: "+str(non_wt_weights.sum()))
+
+    msa = [(desc, seq.upper()) for desc, seq in msa]
+    print("First 10 elements of sampled MSA: ")
+    print(msa[:10])
+    #[('CCDB_ECOLI/1-101', 'MQFKVYTYKRESRYRLFVDVQSDIIDTPGRRMVIPLASARLLSDKVSRELYPVVHIGDESWRMMTTDMASVPVSVIGEEVADLSHRENDIKNAINLMFWGI'), ('UniRef100_A0A6M6E7X5/22-113', '.........--GKNIPCVILQNNKGNASNTTIIVPIIAESNYIKSSPTYVHIRKYNLDEDSIAVCDQIRVIDKKRITKAAKALSEEKKQIEDGI--.....'), ('UniRef100_A0A6M6E7X5/144-229', '.........--EKAFPALVIGRDNK-EKQTLLIAPLLQAKKR.YLLPTQAKIPNGCLSDGKILSLEQMRVIDKSRIVSQNIKFSDTLLEIE-----.....'), ('UniRef100_A0A6M6E7X5/256-332', '........SEQRGLRPCLIIQNDTGNKLSTTIVLPLTSSVPKVDLVVNVIVKQEEFVGRSSIVLCNQIQTIDSSRIKQV-----------------.....'), ('UniRef100_A0A6M6E7X5/406-489', '.........------PAVCIQNSYGNHYSVLIVAPLISSKRT.RLLPTQVKIDFNDSGELMVAALEQVRVIDKRRVVDVLDELPEEKKEILNAYCVS....'), ('UniRef100_UPI000B4B97B8/22-115', '........SEQKGERPAVVVQNDFGNRASTTLIVPLTSNFKT.-EIPTHVNISSKELGVDSIALCEQVRVISKERIIQVRTILSKEVKEIDDALLISF...'), ('UniRef100_UPI000B4B97B8/135-229', '........NEQKGNRPAIVIQNDVGNKYSTLIVAPLQLKKKK.-RLPTHVEIPGNLISKDSIALLEQVRVVDKERVTGVVQNLTEEFKNIEEALLVSF...'), ('UniRef100_UPI0009C11867/73-161', '.......GSEQNGLRPVVIIQNNLGNKYGTLIVAPITSQDKK.-DLPVHSEIYNNSLEKDSTILLEQVTTIDKNKVKEFVGHLTRNEKKLNIALAR.....'), ('UniRef100_F4A1A6/19-111', '........SEQGGVRPVLVVQNDIGNKYSTVIVAAITSQINK.AKLPTHVEISASDYGKDSVILLEQIRTIDKKRLREKIGYLSAETKKVDEALQISF...'), ('UniRef100_A0A150FSC1/22-114', '........SEQGGVRPVLVIQNDIGNKYSTVIVAAITSQINK.AKLPIHIEIKANGLNKDSVVLLEQIRTIDKKRLREKIGHFDEEKEKVDQAIQISL...')]
+    return msa
+
+def process_msa(filename: str, weight_filename: str, filter_msa: bool, path_to_hhfilter: str, hhfilter_min_cov=75, hhfilter_max_seq_id=100, hhfilter_min_seq_id=0) -> List[Tuple[str, str]]:
     if filter_msa:
         input_folder = '/'.join(filename.split('/')[:-1])
         msa_name = filename.split('/')[-1].split('.')[0]
@@ -38,45 +100,13 @@ def read_msa(filename: str, nseq: int, sampling_strategy: str, random_seed: int,
         os.system(path_to_hhfilter+os.sep+'bin/hhfilter -cov '+str(hhfilter_min_cov)+' -id '+str(hhfilter_max_seq_id)+' -qid '+str(hhfilter_min_seq_id)+' -i '+preprocessed_filename+'_UC.a2m -o '+output_filename)
         filename = output_filename
 
-    if sampling_strategy=='first_x_rows':
-        msa = [
-            (record.description, str(record.seq))
-            for record in itertools.islice(SeqIO.parse(filename, "fasta"), nseq)
-        ]
-    elif sampling_strategy=='random':
-        msa = [
-            (record.description, str(record.seq)) for record in SeqIO.parse(filename, "fasta")
-        ]
-        nseq = min(len(msa),nseq)
-        msa = random.sample(msa, nseq)
-    elif sampling_strategy=='sequence-reweighting':
-        MSA = MSA_processing(
-            MSA_location=filename,
-            use_weights=True,
-            weights_location=weight_filename
-        )
-        print("Neff: "+str(MSA.Neff))
-        print("Name of focus_seq: "+str(MSA.focus_seq_name))
-        all_sequences_msa=[]
-        weights=[]
-        msa=[]
-        for seq_name in MSA.raw_seq_name_to_sequence.keys():
-            if seq_name == MSA.focus_seq_name:
-                msa.append((seq_name,MSA.raw_seq_name_to_sequence[seq_name]))
-                del MSA.seq_name_to_weight[seq_name]
-            else:
-                if seq_name in MSA.seq_name_to_weight:
-                    all_sequences_msa.append((seq_name,MSA.raw_seq_name_to_sequence[seq_name]))
-                    weights.append(MSA.seq_name_to_weight[seq_name])
-        if len(all_sequences_msa)>0:
-            weights = np.array(weights) / np.array(list(MSA.seq_name_to_weight.values())).sum()
-            print("Check sum weights MSA: "+str(weights.sum()))
-            msa.extend(random.choices(all_sequences_msa, weights=weights, k=nseq-1))
-    msa = [(desc, seq.upper()) for desc, seq in msa]
-    print("First 10 elements of sampled MSA: ")
-    print(msa[:10])
-    #[('CCDB_ECOLI/1-101', 'MQFKVYTYKRESRYRLFVDVQSDIIDTPGRRMVIPLASARLLSDKVSRELYPVVHIGDESWRMMTTDMASVPVSVIGEEVADLSHRENDIKNAINLMFWGI'), ('UniRef100_A0A6M6E7X5/22-113', '.........--GKNIPCVILQNNKGNASNTTIIVPIIAESNYIKSSPTYVHIRKYNLDEDSIAVCDQIRVIDKKRITKAAKALSEEKKQIEDGI--.....'), ('UniRef100_A0A6M6E7X5/144-229', '.........--EKAFPALVIGRDNK-EKQTLLIAPLLQAKKR.YLLPTQAKIPNGCLSDGKILSLEQMRVIDKSRIVSQNIKFSDTLLEIE-----.....'), ('UniRef100_A0A6M6E7X5/256-332', '........SEQRGLRPCLIIQNDTGNKLSTTIVLPLTSSVPKVDLVVNVIVKQEEFVGRSSIVLCNQIQTIDSSRIKQV-----------------.....'), ('UniRef100_A0A6M6E7X5/406-489', '.........------PAVCIQNSYGNHYSVLIVAPLISSKRT.RLLPTQVKIDFNDSGELMVAALEQVRVIDKRRVVDVLDELPEEKKEILNAYCVS....'), ('UniRef100_UPI000B4B97B8/22-115', '........SEQKGERPAVVVQNDFGNRASTTLIVPLTSNFKT.-EIPTHVNISSKELGVDSIALCEQVRVISKERIIQVRTILSKEVKEIDDALLISF...'), ('UniRef100_UPI000B4B97B8/135-229', '........NEQKGNRPAIVIQNDVGNKYSTLIVAPLQLKKKK.-RLPTHVEIPGNLISKDSIALLEQVRVVDKERVTGVVQNLTEEFKNIEEALLVSF...'), ('UniRef100_UPI0009C11867/73-161', '.......GSEQNGLRPVVIIQNNLGNKYGTLIVAPITSQDKK.-DLPVHSEIYNNSLEKDSTILLEQVTTIDKNKVKEFVGHLTRNEKKLNIALAR.....'), ('UniRef100_F4A1A6/19-111', '........SEQGGVRPVLVVQNDIGNKYSTVIVAAITSQINK.AKLPTHVEISASDYGKDSVILLEQIRTIDKKRLREKIGYLSAETKKVDEALQISF...'), ('UniRef100_A0A150FSC1/22-114', '........SEQGGVRPVLVIQNDIGNKYSTVIVAAITSQINK.AKLPIHIEIKANGLNKDSVVLLEQIRTIDKKRLREKIGHFDEEKEKVDQAIQISL...')]
-    return msa
+    MSA = MSA_processing(
+        MSA_location=filename,
+        use_weights=True,
+        weights_location=weight_filename
+    )
+    print("Name of focus_seq: "+str(MSA.focus_seq_name))
+    return MSA
 
 def create_parser():
     parser = argparse.ArgumentParser(
@@ -85,9 +115,9 @@ def create_parser():
     parser.add_argument(
         "--model_type",
         type=str,
-        help="MSA_transformer Vs ESM1v Vs ESM1b",
-        default="MSA_transformer",
+        default="MSA_Transformer",
         nargs="+",
+        choices=["MSA_Transformer", "ESM1v", "ESM1b"],
     )
     parser.add_argument(
         "--model-location",
@@ -210,11 +240,11 @@ def create_parser():
         help='Whether to overwrite prior scores in the dataframe'
     )
     #No ref file provided
-    parser.add_argument('--target_seq', default=None, type=str, required=True, help='WT sequence mutated in the assay')
+    parser.add_argument('--target_seq', default=None, type=str, help='WT sequence mutated in the assay')
     parser.add_argument('--weight_file_name', default=None, type=str, help='Wild type sequence mutated in the assay (to be provided if not using a reference file)')
     parser.add_argument('--MSA_start', default=None, type=int, help='Index of first AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
-    
+
     parser.add_argument("--nogpu", action="store_true", help="Do not use GPU even if available")
     return parser
 
@@ -288,7 +318,7 @@ def main(args):
         target_seq_start_index = row["start_idx"] if "start_idx" in mapping_protein_seq_DMS.columns and row["start_idx"]!="" else 1
         target_seq_end_index = target_seq_start_index + len(args.sequence) 
         
-        if "MSA_transformer" in args.model_type:  # model_type is a list
+        if "MSA_Transformer" in args.model_type:  # model_type is a list
             # Check MSA_filename exists (might be NaN / empty)
             msa_filename = row["MSA_filename"]
             if msa_filename == "":
@@ -298,7 +328,6 @@ def main(args):
             
             msa_start_index = int(row["MSA_start"]) if "MSA_start" in mapping_protein_seq_DMS.columns else 1
             msa_end_index = int(row["MSA_end"]) if "MSA_end" in mapping_protein_seq_DMS.columns else len(args.sequence)
-            print(f"Tmp: MSA_start: {msa_start_index}, MSA_end: {msa_end_index}")
             
             MSA_weight_file_name = args.msa_weights_folder + os.sep + row["weight_file_name"] if ("weight_file_name" in mapping_protein_seq_DMS.columns and args.msa_weights_folder is not None) else None
             if ((target_seq_start_index!=msa_start_index) or (target_seq_end_index!=msa_end_index)):
@@ -340,6 +369,9 @@ def main(args):
 
         if isinstance(model, MSATransformer):
             args.offset_idx = msa_start_index
+            # Process MSA once, then sample from it
+            processed_msa = process_msa(filename=args.msa_path, weight_filename=MSA_weight_file_name, filter_msa=args.filter_msa, hhfilter_min_cov=args.hhfilter_min_cov, hhfilter_max_seq_id=args.hhfilter_max_seq_id, hhfilter_min_seq_id=args.hhfilter_min_seq_id, path_to_hhfilter=args.path_to_hhfilter)
+
             for seed in args.seeds:
                 if os.path.exists(args.dms_output):
                     prior_score_df = pd.read_csv(args.dms_output)
@@ -349,8 +381,7 @@ def main(args):
                         continue
                 else:
                     prior_score_df = None 
-                data = [read_msa(filename=args.msa_path, nseq=args.msa_samples, sampling_strategy=args.msa_sampling_strategy, random_seed=seed, weight_filename=MSA_weight_file_name,
-                                filter_msa=args.filter_msa, hhfilter_min_cov=args.hhfilter_min_cov, hhfilter_max_seq_id=args.hhfilter_max_seq_id, hhfilter_min_seq_id=args.hhfilter_min_seq_id, path_to_hhfilter=args.path_to_hhfilter)]
+                data = [sample_msa(sampling_strategy=args.msa_sampling_strategy, filename=args.msa_path, nseq=args.msa_samples, weight_filename=MSA_weight_file_name, processed_msa=processed_msa, random_seed=seed)]
                 assert (args.scoring_strategy in ["masked-marginals","pseudo-ppl"]), "Zero-shot scoring strategy not supported with MSA Transformer"
 
                 batch_labels, batch_strs, batch_tokens = batch_converter(data)
@@ -358,10 +389,10 @@ def main(args):
 
                 if args.scoring_strategy == "masked-marginals":
                     all_token_probs = []
-                    for i in tqdm(range(batch_tokens.size(2))):
+                    for i in tqdm(range(batch_tokens.size(2)), desc="Scoring masked-marginals"):
                         batch_tokens_masked = batch_tokens.clone()
                         batch_tokens_masked[0, 0, i] = alphabet.mask_idx  # mask out first sequence
-                        if batch_tokens.size(-1) > 1024: 
+                        if batch_tokens.size(-1) > 1024:
                             large_batch_tokens_masked=batch_tokens_masked.clone()
                             start, end = get_optimal_window(mutation_position_relative=i, seq_len_wo_special=len(args.sequence)+2, model_window=1024)
                             print("Start index {} - end index {}".format(start,end))
@@ -373,7 +404,7 @@ def main(args):
                                 model(batch_tokens_masked.cuda())["logits"], dim=-1
                             )
                         all_token_probs.append(token_probs[:, 0, i-start].detach().cpu())  # vocab size
-                    token_probs = torch.cat(all_token_probs, dim=0).unsqueeze(0) 
+                    token_probs = torch.cat(all_token_probs, dim=0).unsqueeze(0)
                     df[f"{model_location}_seed{seed}"] = df.apply(
                         lambda row: label_row(
                             row[args.mutation_col], args.sequence, token_probs.detach().cpu(), alphabet, args.offset_idx
@@ -385,7 +416,7 @@ def main(args):
                     if 'mutated_sequence' not in df:
                         df['mutated_sequence'] = df.progress_apply(
                             lambda row: get_mutated_sequence(
-                                row[args.mutant_col], args.sequence, offset_idx
+                                row[args.mutant_col], args.sequence, args.offset_idx
                                 ),
                             axis=1,
                         )
@@ -467,7 +498,7 @@ def main(args):
             elif args.scoring_strategy == "masked-marginals":
                 print("Scoring with masked-marginals and model {}".format(model_location))
                 all_token_probs = []
-                for i in tqdm(range(batch_tokens.size(1))):
+                for i in tqdm(range(batch_tokens.size(1)), desc="Scoring masked-marginals"):
                     batch_tokens_masked = batch_tokens.clone()
                     batch_tokens_masked[0, i] = alphabet.mask_idx
                     if batch_tokens.size(1) > 1024 and args.scoring_window=="optimal": 
@@ -500,7 +531,7 @@ def main(args):
                 if 'mutated_sequence' not in df:
                     df['mutated_sequence'] = df.progress_apply(
                         lambda row: get_mutated_sequence(
-                            row[args.mutant_col], args.sequence, offset_idx
+                            row[args.mutant_col], args.sequence, args.offset_idx
                             ),
                         axis=1,
                     )
@@ -519,7 +550,7 @@ def main(args):
             model_location = model_location.split("/")[-1].split(".")[0]
             df["Ensemble_ESM1v"] += df[model_location]
         df["Ensemble_ESM1v"] /= len(args.model_location)
-    elif "MSA_transformer" in args.model_type:
+    elif "MSA_Transformer" in args.model_type:
         df[f"{model_location}_ensemble"] = 0.0
         for seed in args.seeds:
             df[f"{model_location}_ensemble"] += df[f"{model_location}_seed{seed}"]
