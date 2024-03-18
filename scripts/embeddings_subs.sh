@@ -1,7 +1,7 @@
 source ./config.sh
 conda activate proteinnpt_env
 
-export assay_index=0 #Replace with index of desired DMS assay in the ProteinGym reference file (`utils/proteingym`)
+export assay_index=0 # Replace with index of desired DMS assay in the ProteinGym reference file (`utils/proteingym`)
 export batch_size=1
 export max_positions=1024
 

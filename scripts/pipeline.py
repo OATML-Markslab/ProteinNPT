@@ -92,11 +92,16 @@ if __name__ == "__main__":
     print("Training {} model on the {} assay".format(model_name,DMS_id))
 
     assay_data = pd.read_csv(args.assay_data_location,low_memory=False)
+    if not args.indel_mode:
+        assert len(args.target_seq) == len(assay_data["mutated_sequence"].values[0]), "The target sequence does not have the same length as mutated sequences"
     assert "mutant" in assay_data.columns or "mutated_sequence" in assay_data.columns, "Could not find mutant nor mutated_sequence columns in assay file"
     if "mutated_sequence" not in assay_data.columns:
         assay_data["mutated_sequence"] = assay_data['mutant'].apply(lambda x: get_mutated_sequence(args.target_seq, x))
     if "mutant" not in assay_data.columns:
-        assay_data['mutant'] = assay_data.index.to_series().apply(lambda x: "mutant_" + str(x))
+        if not args.indel_mode: #If substitutions assay, we reconstruct the mutants by comparing the mutated sequences with the target sequence
+            assay_data['mutant'] = assay_data["mutated_sequence"].apply(lambda x: ':'.join([wt + str(i+1) + mut for i, (wt, mut) in enumerate(zip(args.target_seq, x)) if wt != mut]))
+        else: #If indels we default to dummy mutant names
+            assay_data['mutant'] = assay_data.index.to_series().apply(lambda x: "mutant_" + str(x))
     if args.fold_variable_name not in assay_data.columns:
         print("fold_variable_name not found in assay file. Assigning {} folds at random".format(args.number_folds))
         assay_data = cv_split.create_folds_random(assay_data, n_folds=args.number_folds)
