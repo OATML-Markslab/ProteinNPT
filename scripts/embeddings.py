@@ -189,7 +189,7 @@ def main(
             MSA_filename = MSA_location.split(os.sep)[-1]
             MSA_data_folder = os.sep.join(MSA_location.split(os.sep)[:-1])
         if (MSA_start is None) or (MSA_end is None): 
-            if MSA_data_folder: print("MSA start and end not provided -- Assuming the MSA is covering the full WT sequence")
+            if MSA_data_folder: print("MSA start or MSA end not provided -- Assuming the MSA is covering the full WT sequence")
             MSA_start = 1
             MSA_end = len(target_seq)
 

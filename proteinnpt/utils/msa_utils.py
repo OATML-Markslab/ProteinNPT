@@ -161,7 +161,6 @@ class MSA_processing:
     @staticmethod
     def preprocess_msa(seq_name_to_sequence, focus_seq_name, threshold_sequence_frac_gaps, threshold_focus_cols_frac_gaps):
         """Remove inadequate columns and sequences from MSA, overwrite self.seq_name_to_sequence."""
-        print("Pre-processing MSA to remove inadequate columns and sequences...")
         msa_df = pd.DataFrame.from_dict(seq_name_to_sequence, orient='index', columns=['sequence'])
         # Data clean up
         msa_df.sequence = msa_df.sequence.apply(lambda x: x.replace(".", "-")).apply(
