@@ -1,6 +1,6 @@
 source config.sh  # To get $proteinnpt_data_path
 conda activate proteinnpt_env
-#source $proteinnpt_data_path/proteinnpt_env/bin/activate # Uncomment if using python venv instead of conda
+#source $proteinnpt_data_path/proteinnpt_env/bin/activate # Uncomment if using python venv instead of conda env
 
 export assay_data_location="Replace this string with the path to the assay data"
 export MSA_location="Replace this string with the path to the MSA data"

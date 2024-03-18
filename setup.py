@@ -9,7 +9,7 @@ setup(
     long_description=readme,
     long_description_content_type="text/markdown",
     author="Pascal Notin and Ruben Weitzman",
-    version="1.2",
+    version="1.3",
     license="MIT",
     url="https://github.com/OATML-Markslab/ProteinNPT",    
     packages=find_packages()
