@@ -31,7 +31,7 @@ def get_parameter_names(model, forbidden_layer_types):
 def get_learning_rate(training_step, num_warmup_steps=1000, num_total_training_steps=20000, max_learning_rate=3e-4, min_learning_rate=3e-5):
     """
     """
-    if training_step < num_warmup_steps:
+    if training_step <= num_warmup_steps:
         lr = (max_learning_rate * training_step) / num_warmup_steps
     elif training_step > num_total_training_steps:
         lr=min_learning_rate
@@ -277,7 +277,10 @@ class Trainer():
                 log_train_reconstruction_loss += reconstruction_loss
                 log_train_num_masked_tokens += processed_batch['masked_tokens'].eq(self.model.alphabet.mask_idx).sum()
                 for target_name in self.model.target_names:
-                    log_train_num_target_masked_tokens_dict[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
+                    if self.args.target_config[target_name]["type"]=="continuous":
+                        log_train_num_target_masked_tokens_dict[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
+                    else:
+                        log_train_num_target_masked_tokens_dict[target_name] += processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
             else:
                 log_num_sequences_predicted += len(batch['mutant_mutated_seq_pairs'])
             
@@ -484,7 +487,10 @@ class Trainer():
                     eval_reconstruction_loss += batch_reconstruction_loss.item()
                     eval_num_masked_tokens += processed_batch['masked_tokens'].eq(self.model.alphabet.mask_idx).sum().item()
                     for target_name in self.model.target_names:
-                        eval_num_masked_targets[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item()
+                        if self.args.target_config[target_name]["type"]=="continuous":
+                            eval_num_masked_targets[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
+                        else:
+                            eval_num_masked_targets[target_name] += processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
                 else:
                     num_predicted_targets += len(batch['mutant_mutated_seq_pairs'])
                 if output_all_predictions:
@@ -497,15 +503,15 @@ class Trainer():
                     row_attentions.append(output["row_attentions"])
 
             output_scores = pd.DataFrame.from_dict(output_scores)
-            output_scores_numeric_cols = [col_name for col_name in output_scores.columns if col_name not in ['mutant','mutated_sequence']]
-            output_scores = output_scores.groupby(['mutant'])[output_scores_numeric_cols].mean().reset_index() 
+            output_scores_numeric_cols = [col_name for col_name in output_scores.columns if col_name not in ['mutated_sequence']]
+            output_scores = output_scores[output_scores_numeric_cols]
+            assert len(output_scores)==output_scores['mutant'].nunique()
             mutated_seqs_dict = {}
             mutant_mutated_seqs = list(zip(*test_data['mutant_mutated_seq_pairs']))
             mutated_seqs_dict['mutant'] = mutant_mutated_seqs[0]
             mutated_seqs_dict['mutated_sequence'] = mutant_mutated_seqs[1]
             mutated_seqs_df = pd.DataFrame.from_dict(mutated_seqs_dict)
             output_scores = pd.merge(output_scores, mutated_seqs_df, on='mutant', how='left')
-        
 
         eval_results = {
             'eval_total_loss':eval_total_loss,

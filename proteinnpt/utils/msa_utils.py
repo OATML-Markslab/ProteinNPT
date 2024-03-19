@@ -94,7 +94,7 @@ class MSA_processing:
                 seq_length=self.seq_len,
             )
             print ("Data Shape =", self.one_hot_encoding.shape)
-            
+
         self.calc_weights(num_cpus=num_cpus, method=weights_calc_method)
 
     def gen_alignment(self):
@@ -132,16 +132,6 @@ class MSA_processing:
         self.seq_len = len(self.focus_cols)
         self.alphabet_size = len(self.alphabet)
 
-        # Connect local sequence index with uniprot index (index shift inferred from 1st row of MSA)
-        focus_loc = self.focus_seq_name.split("/")[-1]
-        start, stop = focus_loc.split("-")
-        self.focus_start_loc = int(start)
-        self.focus_stop_loc = int(stop)
-        self.uniprot_focus_col_to_wt_aa_dict \
-            = {idx_col + int(start): self.focus_seq[idx_col] for idx_col in self.focus_cols}
-        self.uniprot_focus_col_to_focus_idx \
-            = {idx_col + int(start): idx_col for idx_col in self.focus_cols}
-
         # Move all letters to CAPS; keeps focus columns only
         self.raw_seq_name_to_sequence = self.seq_name_to_sequence.copy()
         for seq_name, sequence in self.seq_name_to_sequence.items():
@@ -161,7 +151,7 @@ class MSA_processing:
             seq_names_to_remove = list(set(seq_names_to_remove))
             for seq_name in seq_names_to_remove:
                 del self.seq_name_to_sequence[seq_name]
-        
+
         print("Number of sequences after preprocessing:", len(self.seq_name_to_sequence))
         self.num_sequences = len(self.seq_name_to_sequence.keys())
 
@@ -211,9 +201,9 @@ class MSA_processing:
 
     def calc_weights(self, num_cpus=1, method="eve"):
         """
-        From the EVE repo, but modified to skip printing out progress bar / time taken 
+        From the EVE repo, but modified to skip printing out progress bar / time taken
         (because for ProteinNPT embeddings, weights will usually be computed on the fly for small subsamples of MSA).
-        
+
         If num_cpus == 1, weights are computed in serial.
         If num_cpus == -1, weights are computed in parallel using all available cores.
         Note: This will use multiprocessing.cpu_count() to get the number of available cores, which on clusters may
@@ -252,12 +242,12 @@ class MSA_processing:
         self.Neff = np.sum(self.weights)
         print("Neff =", str(self.Neff))
         print("Number of sequences: ", self.num_sequences)
-        
+
         assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
         self.seq_name_to_weight={}  # For later, if we want to remove certain sequences and associated weights
         for i,seq_name in enumerate(self.seq_name_to_sequence.keys()):
             self.seq_name_to_weight[seq_name]=self.weights[i]
-        
+
         return self.weights
 
 # One-hot encoding of sequences
@@ -283,7 +273,7 @@ def get_num_cpus():
         print("SLURM_CPUS_PER_TASK:", os.environ['SLURM_CPUS_PER_TASK'])
         print("Using all available cores (calculated using SLURM_CPUS_PER_TASK):", num_cpus)
     else:
-        num_cpus = len(os.sched_getaffinity(0)) 
+        num_cpus = len(os.sched_getaffinity(0))
         print("Using all available cores (calculated using len(os.sched_getaffinity(0))):", num_cpus)
     return num_cpus
 
@@ -323,7 +313,7 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
     MSA_other_sequences=[]
     weights=[]
     MSA_reference_sequence=[]
-    
+
     # Removes the WT sequences
     for seq_name in processed_MSA.raw_seq_name_to_sequence.keys():
         if seq_name == processed_MSA.focus_seq_name:
@@ -333,12 +323,12 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
             if seq_name in processed_MSA.seq_name_to_weight: 
                 MSA_other_sequences.append((seq_name,processed_MSA.raw_seq_name_to_sequence[seq_name]))
                 weights.append(processed_MSA.seq_name_to_weight[seq_name])
-    
+
     if len(MSA_other_sequences)>0:
         # Re-weight the non-wt sequences to sum to 1
         MSA_non_ref_sequences_weights = np.array(weights) / np.array(list(processed_MSA.seq_name_to_weight.values())).sum()
         print("Check sum weights MSA: "+str(np.array(weights).sum()))
-    
+
     MSA_all_sequences = MSA_reference_sequence + MSA_other_sequences
     return MSA_all_sequences, MSA_non_ref_sequences_weights
 
@@ -370,7 +360,7 @@ def process_MSA(MSA_data_folder, MSA_weight_data_folder, MSA_filename, MSA_weigh
         # To be safe, this will not create the parent weights directory if it does not already exist.
         # To create intermediate directories, we would use os.makedirs()
         os.mkdir(hhfiltered_weights_folder)
-        
+
     MSA_all_sequences, MSA_non_ref_sequences_weights = compute_sequence_weights(MSA_filename=filtered_MSA_filename, MSA_weights_filename=os.path.join(MSA_weight_data_folder, "hhfiltered", MSA_weights_filename))
     return MSA_all_sequences, MSA_non_ref_sequences_weights
 

@@ -16,6 +16,7 @@ dependencies:
   - pip
   - biopython
   - h5py
+  - numba
   - pytorch=2.2.0
   - pytorch-cuda=11.8
   - numba

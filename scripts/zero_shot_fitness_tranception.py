@@ -102,6 +102,7 @@ def main():
 
     
     DMS_data = pd.read_csv(args.DMS_data_folder + os.sep + DMS_file_name, low_memory=False)
+    DMS_data['mutated_sequence'] = DMS_data['mutated_sequence'].apply(lambda x: x.replace("-",""))
     all_scores = model.score_mutants(
                                     DMS_data=DMS_data, 
                                     target_seq=target_seq, 
