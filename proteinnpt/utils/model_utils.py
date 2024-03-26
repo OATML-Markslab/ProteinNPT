@@ -162,7 +162,6 @@ class Trainer():
                     num_epochs +=1
                     train_iterator = iter(train_loader)
                     batch = next(train_iterator)
-                
                 if self.model.model_type=="ProteinNPT":
                     processed_batch = proteinnpt.proteinnpt.data_processing.process_batch(
                         batch = batch,
@@ -271,19 +270,21 @@ class Trainer():
                 optimizer.step()
 
             log_train_total_loss += total_loss
-            for target_name in self.model.target_names:
-                log_train_target_prediction_loss_dict[target_name] += target_prediction_loss_dict[target_name]
             if self.model.model_type=="ProteinNPT": 
-                log_train_reconstruction_loss += reconstruction_loss
-                log_train_num_masked_tokens += processed_batch['masked_tokens'].eq(self.model.alphabet.mask_idx).sum()
+                num_masked_tokens_in_batch = (~processed_batch['token_labels'].eq(-100)).sum().item()
+                log_train_num_masked_tokens += num_masked_tokens_in_batch
+                log_train_reconstruction_loss += reconstruction_loss * num_masked_tokens_in_batch
                 for target_name in self.model.target_names:
                     if self.args.target_config[target_name]["type"]=="continuous":
-                        log_train_num_target_masked_tokens_dict[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
+                        num_masked_tokens_target_in_batch = processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
                     else:
-                        log_train_num_target_masked_tokens_dict[target_name] += processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
+                        num_masked_tokens_target_in_batch = processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
+                    log_train_num_target_masked_tokens_dict[target_name] += num_masked_tokens_target_in_batch
+                    log_train_target_prediction_loss_dict[target_name] += target_prediction_loss_dict[target_name] * num_masked_tokens_target_in_batch
             else:
                 log_num_sequences_predicted += len(batch['mutant_mutated_seq_pairs'])
-            
+                for target_name in self.model.target_names:
+                    log_train_target_prediction_loss_dict[target_name] += target_prediction_loss_dict[target_name] * len(batch['mutant_mutated_seq_pairs'])
             if training_step % self.args.num_logging_training_steps == 0 and self.args.use_wandb:
                 time_end_step = time.time()
                 delta_time_since_last_log = time_end_step - prior_log_time
@@ -295,9 +296,9 @@ class Trainer():
                 }
                 if self.model.model_type=="ProteinNPT": 
                     train_logs["train_total_loss_per_step"]: log_train_total_loss / self.args.num_logging_training_steps
-                    train_logs["train_reconstruction_loss_per_masked_token"] = log_train_reconstruction_loss / log_train_num_masked_tokens
+                    train_logs["train_reconstruction_loss_per_masked_token"] = log_train_reconstruction_loss.item() / log_train_num_masked_tokens
                     for target_name in self.model.target_names:
-                        train_logs["train_prediction_"+str(target_name)+"_loss_per_masked_token"] = log_train_target_prediction_loss_dict[target_name] / log_train_num_target_masked_tokens_dict[target_name]
+                        train_logs["train_prediction_"+str(target_name)+"_loss_per_masked_token"] = log_train_target_prediction_loss_dict[target_name].item() / log_train_num_target_masked_tokens_dict[target_name]
                 else:
                     train_logs["train_total_loss_per_seq"]: log_train_total_loss / log_num_sequences_predicted
                     for target_name in self.model.target_names:
@@ -338,16 +339,10 @@ class Trainer():
                         output_all_predictions=True
                     )
                 eval_logs = {"Training step": training_step} 
-                if self.model.model_type=="ProteinNPT":
-                    normalization = 0
-                    for target_name in self.model.target_names: normalization += eval_results['eval_num_masked_targets'][target_name]
-                else:
-                    normalization = eval_results['eval_num_predicted_targets']
-                eval_logs['Eval total loss per seq.']: eval_results['eval_total_loss'] / normalization
+                eval_logs['Eval total loss per seq.'] = eval_results['eval_total_loss']
                 average_spearman_across_targets = 0 #If early stopping based on validation spearman and multiple targets, we check that avg spearman is not decreasing for a certain # of times in a row
                 for target_name in self.model.target_names:
-                    if self.model.model_type=="ProteinNPT": normalization = eval_results['eval_num_masked_targets'][target_name] #Update for PNPT (keeep the same normalization constant otherwise)
-                    eval_logs['Eval loss '+str(target_name)+' per seq.'] = eval_results['eval_target_prediction_loss_dict'][target_name] / normalization
+                    eval_logs['Eval loss '+str(target_name)+' per seq.'] = eval_results['eval_target_prediction_loss_dict'][target_name]
                     if self.args.target_config[target_name]["dim"]==1:
                         eval_logs['Eval spearman '+target_name] = spearmanr(eval_results['output_scores']['predictions_'+target_name], eval_results['output_scores']['labels_'+target_name])[0]
                     else:
@@ -393,6 +388,7 @@ class Trainer():
                             )
             eval_iterator = iter(eval_loader)
             
+            num_eval_batches = 0
             eval_total_loss = 0
             if self.model.model_type=="ProteinNPT": 
                 eval_reconstruction_loss = 0
@@ -480,19 +476,23 @@ class Trainer():
                         label_smoothing=self.args.label_smoothing
                     )
                 
+                num_eval_batches += 1
                 eval_total_loss += batch_loss.item()
-                for target_name in self.model.target_names:
-                    eval_target_prediction_loss_dict[target_name] += batch_target_prediction_loss_dict[target_name].item()
                 if self.model.model_type=="ProteinNPT":
-                    eval_reconstruction_loss += batch_reconstruction_loss.item()
-                    eval_num_masked_tokens += processed_batch['masked_tokens'].eq(self.model.alphabet.mask_idx).sum().item()
+                    num_masked_tokens_in_batch = (~processed_batch['token_labels'].eq(100)).sum().item()  #processed_batch['masked_tokens'].eq(self.model.alphabet.mask_idx).sum().item()
+                    eval_num_masked_tokens += num_masked_tokens_in_batch
+                    eval_reconstruction_loss += batch_reconstruction_loss.item() * num_masked_tokens_in_batch
                     for target_name in self.model.target_names:
                         if self.args.target_config[target_name]["type"]=="continuous":
-                            eval_num_masked_targets[target_name] += processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
+                            num_masked_tokens_target_in_batch = processed_batch['masked_targets'][target_name][:,-1].eq(1.0).sum().item() # Masked targets are encoded by 1.0. Mask column is the very last one
                         else:
-                            eval_num_masked_targets[target_name] += processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
+                            num_masked_tokens_target_in_batch = processed_batch['masked_targets'][target_name].eq(self.args.target_config[target_name]["dim"]).sum().item() # Index of mask is exactly self.args.target_config[target_name]["dim"] (largest value possible)
+                        eval_num_masked_targets[target_name] += num_masked_tokens_target_in_batch
+                        eval_target_prediction_loss_dict[target_name] += batch_target_prediction_loss_dict[target_name].item() * num_masked_tokens_target_in_batch
                 else:
                     num_predicted_targets += len(batch['mutant_mutated_seq_pairs'])
+                    for target_name in self.model.target_names:
+                        eval_target_prediction_loss_dict[target_name] += batch_target_prediction_loss_dict[target_name].item() * len(batch['mutant_mutated_seq_pairs'])
                 if output_all_predictions:
                     num_of_mutated_seqs_to_score = processed_batch['num_of_mutated_seqs_to_score'] if self.model.model_type=="ProteinNPT" else len(processed_batch['mutant_mutated_seq_pairs'])
                     for target_name in self.model.target_names:
@@ -513,9 +513,15 @@ class Trainer():
             mutated_seqs_df = pd.DataFrame.from_dict(mutated_seqs_dict)
             output_scores = pd.merge(output_scores, mutated_seqs_df, on='mutant', how='left')
 
+        # Normalization
+        for target_name in self.model.target_names:
+            if self.model.model_type=="ProteinNPT":
+                eval_target_prediction_loss_dict[target_name] /= eval_num_masked_targets[target_name] # We track exactly how many targets were masked across batches to account for potential discrepancies across batches (eg., last abtch may not have the same number of labels)
+            else:
+                eval_target_prediction_loss_dict[target_name] /= num_predicted_targets
         eval_results = {
-            'eval_total_loss':eval_total_loss,
-            'eval_target_prediction_loss_dict':eval_target_prediction_loss_dict,
+            'eval_total_loss':eval_total_loss / num_eval_batches,
+            'eval_target_prediction_loss_dict': eval_target_prediction_loss_dict,
             'output_scores': output_scores
         }
         if need_head_weights:
@@ -524,9 +530,9 @@ class Trainer():
             eval_results['row_attentions'] = torch.stack(row_attentions, dim=0).cpu().numpy()
         
         if self.model.model_type=="ProteinNPT":
-            eval_results['eval_reconstruction_loss']=eval_reconstruction_loss
-            eval_results['eval_num_masked_tokens']=eval_num_masked_tokens
-            eval_results['eval_num_masked_targets']=eval_num_masked_targets
+            eval_results['eval_reconstruction_loss'] = eval_reconstruction_loss / eval_num_masked_tokens
+            eval_results['eval_num_masked_tokens'] = eval_num_masked_tokens
+            eval_results['eval_num_masked_targets'] = eval_num_masked_targets
         else:
-            eval_results['eval_num_predicted_targets']=num_predicted_targets
+            eval_results['eval_num_predicted_targets'] = num_predicted_targets
         return eval_results

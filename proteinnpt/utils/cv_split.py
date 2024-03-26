@@ -43,21 +43,21 @@ def create_folds_random_multiples(DMS):
 
 def create_folds_by_position_modulo(DMS, n_folds=5, mutant_column='mutant'):
     column_name = 'fold_modulo_{}'.format(n_folds)
-    mutated_region_list = DMS[mutant_column].apply(lambda x: return_position_single(x)).unique()
+    mutated_region_list = sorted(DMS[mutant_column].apply(return_position_single).unique())
     len_mutated_region = len(mutated_region_list)
     if len_mutated_region < n_folds:
         raise Exception("Error, there are fewer mutated regions than requested folds")
-    DMS[column_name] = DMS[mutant_column].apply(lambda x: return_position_single(x)) % n_folds
+    position_to_fold = {pos: i % n_folds for i, pos in enumerate(mutated_region_list)}
+    DMS[column_name] = DMS[mutant_column].apply(lambda x: position_to_fold[return_position_single(x)])
     print(DMS[column_name].value_counts())
     return DMS
 
-def create_folds_by_contiguous_position_discontiguous(DMS, n_folds=5, mutant_column='mutant', region_mutated=None):
-    " This function is for the case where the mutations are discontiguous"
+def create_folds_by_contiguous_position_discontiguous(DMS, n_folds=5, mutant_column='mutant'):
     column_name = 'fold_contiguous_{}'.format(n_folds)
-    mutated_region_list = DMS[mutant_column].apply(lambda x: return_position_single(x)).unique()
+    mutated_region_list = sorted(DMS[mutant_column].apply(lambda x: return_position_single(x)).unique())
     len_mutated_region = len(mutated_region_list)
-    k, m = divmod(len(mutated_region_list), n_folds)
-    folds = [[i]* k + [i] * (i<m) for i in range(n_folds)]
+    k, m = divmod(len_mutated_region, n_folds)
+    folds = [[i] * k + [i] * (i < m) for i in range(n_folds)]
     folds = [item for sublist in folds for item in sublist]
     folds_indices = dict(zip(mutated_region_list, folds))
     if len_mutated_region < n_folds:
@@ -69,7 +69,7 @@ def create_folds_by_contiguous_position_discontiguous(DMS, n_folds=5, mutant_col
 def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = './ProteinGym/DMS_assays/substitutions', saving_folder = './ProteinGym/data/fitness', DMS_score_name = 'DMS_score', DMS_score_bin_name = 'DMS_score_bin'):
     ProteinGym_ref =  pd.read_csv(reference_file_location, low_memory=False)
     list_errors = []
-    for DMS_id, DMS_has_multiples, region_mutated in zip(ProteinGym_ref.DMS_id, ProteinGym_ref.includes_multiple_mutants, ProteinGym_ref.region_mutated):
+    for DMS_id, DMS_has_multiples in zip(ProteinGym_ref.DMS_id, ProteinGym_ref.includes_multiple_mutants):
         try:
             if DMS_has_multiples:
                 # Remove multiples if present in file
@@ -89,11 +89,11 @@ def create_folds_loop(reference_file_location = None, fold_list=[5], dir_path = 
                 try:
                     DMS = create_folds_by_position_modulo(DMS, n_folds=n_folds)
                     DMS = create_folds_random(DMS, n_folds=n_folds)
-                    DMS = create_folds_by_contiguous_position_discontiguous(DMS, n_folds=n_folds, region_mutated =region_mutated)
+                    DMS = create_folds_by_contiguous_position_discontiguous(DMS, n_folds=n_folds)
                 except Exception as e: 
                     DMS = create_folds_by_position_modulo(DMS, n_folds=4)
                     DMS = create_folds_random(DMS, n_folds=4)
-                    DMS = create_folds_by_contiguous_position_discontiguous(DMS, n_folds=4, region_mutated =region_mutated)
+                    DMS = create_folds_by_contiguous_position_discontiguous(DMS, n_folds=4)
                     DMS = DMS.rename(columns={"fold_modulo_4": "fold_modulo_5", "fold_random_4": "fold_random_5", "fold_contiguous_4": "fold_contiguous_5"})
                     DMS = DMS.loc[:,~DMS.columns.duplicated()].copy()
                     print("Error with " + DMS_id)

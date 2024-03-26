@@ -76,10 +76,10 @@ def setup_config_and_paths(args):
                 if len(args.assay_data_folder) > 1:
                     assert len(args.assay_data_folder)==num_targets, "Trying to predict {} targets, but only referencing {} distinct paths for them.".format(num_targets,len(args.assay_location))
                     args.target_config[target]["location"] = args.assay_data_folder[target_index]
-                    print("Location used for target {} if {}".format(target,args.assay_data_folder[target_index]))
+                    print("Location used for target {} is: {}".format(target,args.assay_data_folder[target_index]))
                 else:
                     args.target_config[target]["location"] = args.assay_data_folder[0]
-                    print("Location used for target {} if {}".format(target,args.assay_data_folder[0]))
+                    print("Location used for target {} is: {}".format(target,args.assay_data_folder[0]))
             else:
                 print("Assay location not provided. Defaulting to location for single substitutions fitness assays: {}".format(args.data_location + os.sep + 'data/fitness/substitutions_singles'))
                 args.target_config[target]["location"] = args.data_location + os.sep + 'data/fitness/substitutions_singles'
@@ -92,12 +92,7 @@ def log_performance_fold(args,target_names,test_eval_results,trainer_final_statu
         dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         logs_folder = dir_path+os.sep+'output'
         if not os.path.exists(logs_folder): os.mkdir(logs_folder)
-    if args.model_type=="ProteinNPT":
-        normalization = 0
-        for target_name in target_names: normalization += test_eval_results['eval_num_masked_targets'][target_name]
-    else:
-        normalization = test_eval_results['eval_num_predicted_targets']
-    test_logs['Test total loss per seq.'] = test_eval_results['eval_total_loss'] / normalization
+    test_logs['Test total loss per seq.'] = test_eval_results['eval_total_loss']
     spearmans = {}
     num_obs_spearmans = {}
     for target_name in target_names:
@@ -109,8 +104,7 @@ def log_performance_fold(args,target_names,test_eval_results,trainer_final_statu
         num_obs_spearmans[target_name] = pnpt_count_non_nan(test_eval_results['output_scores']['labels_'+target_name])
         print("Spearman {} target: {}".format(target_name,spearmans[target_name]))
         test_logs['Test Spearman '+target_name] = spearmans[target_name]
-        if args.model_type=="ProteinNPT": normalization = test_eval_results['eval_num_masked_targets'][target_name]
-        test_logs['Test loss '+str(target_name)+' per seq.'] = test_eval_results['eval_target_prediction_loss_dict'][target_name] / normalization
+        test_logs['Test loss '+str(target_name)+' per seq.'] = test_eval_results['eval_target_prediction_loss_dict'][target_name]
     with open(logs_folder+os.sep+"test_performance_by_fold_"+args.model_name_suffix+".csv", "a") as perf_tracker:
         if os.path.getsize(logs_folder+os.sep+"test_performance_by_fold_"+args.model_name_suffix+".csv") == 0: 
             header="fold_index,model_type,model_name_suffix,targets,assay_id,UniProt_id,fold_variable_name,total_training_steps,total_training_epochs,aa_embeddings,target_prediction_model,target_prediction_head,augmentation,frozen_embedding_parameters,dropout,weight_decay,early_stopping_patience,use_validation_set,training_num_assay_sequences_per_batch_per_gpu,eval_num_sequences_to_score_per_batch_per_gpu,eval_num_training_sequences_per_batch_per_gpu,eval_training_sequences_sampling_method,num_MSA_sequences_per_training_instance,embed_dim,ffn_embed_dim,attention_heads,conv_kernel_size,num_protein_npt_layers,total_loss"
@@ -263,7 +257,7 @@ def main(args):
         combined_dict = {**vars(args), "parameter_count": sum(p.numel() for p in model.parameters()), "assay_id": assay_id, "UniProt_id": UniProt_id}
         wandb.init(project=os.getenv("WANDB_PROJECT"), config=combined_dict, name=model_name, dir=args.wandb_location, save_code=True)
     
-    print("tmp: Starting training")
+    print("Starting training")
     # Define trainer
     trainer = Trainer(
             model= model,

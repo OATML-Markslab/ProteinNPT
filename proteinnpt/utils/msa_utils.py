@@ -88,7 +88,7 @@ class MSA_processing:
 
         # Note: One-hot encodings might take up huge amounts of memory, and this could be skipped in many use cases
         if not self.skip_one_hot_encodings:
-            print("One-hot encoding sequences")
+            #print("One-hot encoding sequences")
             self.one_hot_encoding = one_hot_3D(
                 seq_keys=self.seq_name_to_sequence.keys(),  # Note: Dicts are unordered for python < 3.6
                 seq_name_to_sequence=self.seq_name_to_sequence,
@@ -143,6 +143,8 @@ class MSA_processing:
 
         # Remove sequences that have indeterminate AA (e.g., B, J, X, Z) in the focus columns
         if self.remove_sequences_with_indeterminate_AA_in_focus_cols:
+            num_sequences_removed_due_to_indeterminate_AAs = 0
+            num_sequences_before_indeterminate_AA_drop = len(self.seq_name_to_sequence)
             alphabet_set = set(list(self.alphabet))
             seq_names_to_remove = []
             for seq_name, sequence in self.seq_name_to_sequence.items():
@@ -152,7 +154,9 @@ class MSA_processing:
                         continue
             seq_names_to_remove = list(set(seq_names_to_remove))
             for seq_name in seq_names_to_remove:
+                num_sequences_removed_due_to_indeterminate_AAs+=1
                 del self.seq_name_to_sequence[seq_name]
+            print("Proportion of sequences dropped due to indeterminate AAs: {}%".format(round(float(num_sequences_removed_due_to_indeterminate_AAs/num_sequences_before_indeterminate_AA_drop*100),2)))
         
         print("Number of sequences after preprocessing:", len(self.seq_name_to_sequence))
         self.num_sequences = len(self.seq_name_to_sequence.keys())
@@ -329,8 +333,8 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
         use_weights=True,
         weights_location=MSA_weights_filename
     )
-    print("Neff: "+str(processed_MSA.Neff))
-    print("Name of focus_seq: "+str(processed_MSA.focus_seq_name))
+    #print("Neff: "+str(processed_MSA.Neff))
+    #print("Name of focus_seq: "+str(processed_MSA.focus_seq_name))
     MSA_other_sequences=[]
     weights=[]
     MSA_reference_sequence=[]
@@ -348,7 +352,7 @@ def compute_sequence_weights(MSA_filename, MSA_weights_filename):
     if len(MSA_other_sequences)>0:
         # Re-weight the non-wt sequences to sum to 1
         MSA_non_ref_sequences_weights = np.array(weights) / np.array(list(processed_MSA.seq_name_to_weight.values())).sum()
-        print("Check sum weights MSA: "+str(np.array(weights).sum()))
+        #print("Check sum weights MSA: "+str(np.array(weights).sum()))
     
     MSA_all_sequences = MSA_reference_sequence + MSA_other_sequences
     return MSA_all_sequences, MSA_non_ref_sequences_weights

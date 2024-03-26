@@ -10,7 +10,7 @@ export DMS_index=0 #Replace with index of desired DMS assay in the ProteinGym re
 export model_checkpoint=$MSA_Transformer_location
 export output_folder=$zero_shot_fitness_predictions_substitutions/MSA_Transformer
 export scoring_strategy=masked-marginals
-export model_type=MSA_transformer
+export model_type=MSA_Transformer
 export random_seeds="1 2 3 4 5"
 
 python zero_shot_fitness_esm.py \

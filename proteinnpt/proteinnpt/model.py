@@ -369,8 +369,7 @@ class ProteinNPTModel(nn.Module):
         total_loss = 0.0
         if (token_labels is not None) and (MLM_reconstruction_loss_weight > 0.0):
             if self.args.aa_embeddings == "MSA_Transformer" and self.args.sequence_embeddings_location is None: token_labels = token_labels[:,0,:] #Only keep the token labels for seq to score. Drops the token labels for MSA sequences
-            masked_lm_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(token_predictions_logits.reshape(-1, self.alphabet_size), token_labels.reshape(-1))
-            reconstruction_loss = masked_lm_loss
+            reconstruction_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(token_predictions_logits.reshape(-1, self.alphabet_size), token_labels.reshape(-1))
             total_loss += MLM_reconstruction_loss_weight * reconstruction_loss
         else:
             reconstruction_loss = torch.tensor(0.0)
@@ -382,7 +381,7 @@ class ProteinNPTModel(nn.Module):
                     tgt_loss = torch.tensor(0.0)
                 else:
                     if self.args.target_config[target_name]["type"]=="continuous":
-                        tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets]) #we do not average the loss per batch, so that it's easier to do 1 full average across all batches
+                        tgt_loss = MSELoss(reduction="mean")(target_predictions[target_name][loss_masked_targets], target_labels[target_name][loss_masked_targets])
                     else:
                         tgt_loss = CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)(target_predictions[target_name][loss_masked_targets].view(-1, self.args.target_config[target_name]["dim"]), target_labels[target_name][loss_masked_targets].view(-1).long()) # Note: we dont add one to the # of categories in the CE loss here (we dont predict <mask>)
                 if torch.isnan(tgt_loss).sum() > 0:
