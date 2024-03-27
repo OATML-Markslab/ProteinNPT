@@ -74,12 +74,12 @@ class Trainer():
         model,
         args,
         train_data, 
-        val_data,
-        MSA_sequences, 
-        MSA_weights,
-        MSA_start_position,
-        MSA_end_position,
-        target_processing,
+        val_data=None,
+        MSA_sequences=None, 
+        MSA_weights=None,
+        MSA_start_position=None,
+        MSA_end_position=None,
+        target_processing=None,
         distributed_training=False
         ):
         self.model = model

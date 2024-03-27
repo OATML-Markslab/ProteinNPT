@@ -17,8 +17,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='End-to-end ProteinNPT pipeline on new assays')
 
     ### Required parameters
-    parser.add_argument('--assay_data_location', default=None, type=str, required=True, help='Path to assay data csv (expects a csv, with at least three columns: mutant or mutated_sequence | DMS_score | fold_variable_name)')
-    parser.add_argument('--target_seq', default=None, type=str, required=True, help='WT sequence mutated in the assay')
+    parser.add_argument('--assay_data_location', type=str, required=True, help='Path to assay data csv (expects a csv, with at least three columns: mutant or mutated_sequence | DMS_score | fold_variable_name)')
+    parser.add_argument('--target_seq', type=str, required=True, help='WT sequence mutated in the assay')
     parser.add_argument('--proteinnpt_data_location', type=str, required=True, help='Path to core ProteinNPT datasets (e.g., MSA files, DMS assays, pretrained model checkpoints). Training output will also be stored there (i.e., checkpoints and test set predictions).')
     parser.add_argument('--MSA_location', default=None, type=str, help='Path to MSA file (expects .a2m) - Required for PNPT, MSAT Transformer and Tranception')
     ### Optional parameters

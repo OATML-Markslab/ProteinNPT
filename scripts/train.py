@@ -289,12 +289,12 @@ def main(args):
 
     # Eval performance on test set & log to wandb & persist predictions / performance to disk
     if args.model_type == "ProteinNPT":
-            test_eval_results = trainer.eval(
-                test_data=test_data,
-                train_data=train_data,
-                reconstruction_loss_weight=0.0,
-                output_all_predictions=True
-            )
+        test_eval_results = trainer.eval(
+            test_data=test_data,
+            train_data=train_data,
+            reconstruction_loss_weight=0.0,
+            output_all_predictions=True
+        )
     else:
         test_eval_results = trainer.eval(
             test_data=test_data, 
