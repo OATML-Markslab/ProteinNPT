@@ -74,8 +74,8 @@ def main():
     config.tokenizer = tokenizer
     config.scoring_window = args.scoring_window
 
-    if args.inference_time_retrieval:
-        config.retrieval_aggregation_mode = "aggregate_indel" if args.indel_mode else "aggregate_substitution"
+    if args.inference_time_retrieval and not args.indel_mode:
+        config.retrieval_aggregation_mode = "aggregate_substitution"
         config.MSA_filename=MSA_data_file
         config.full_protein_length=len(target_seq)
         config.MSA_weight_file_name=MSA_weight_file_name
@@ -100,7 +100,6 @@ def main():
     mirror_type = '_no_mirror' if args.deactivate_scoring_mirror else ''
     scoring_filename = args.output_scores_folder + os.sep + DMS_id + ".csv"
 
-    
     DMS_data = pd.read_csv(args.DMS_data_folder + os.sep + DMS_file_name, low_memory=False)
     DMS_data['mutated_sequence'] = DMS_data['mutated_sequence'].apply(lambda x: x.replace("-",""))
     all_scores = model.score_mutants(

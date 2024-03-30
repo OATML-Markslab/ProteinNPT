@@ -236,7 +236,7 @@ def main(args):
         MSA_end_position = int(assay_reference_file["MSA_end"][assay_reference_file["DMS_id"]==assay_id].values[0]) if "MSA_end" in assay_reference_file.columns else args.seq_len
     else:
         UniProt_id = assay_id
-        MSA_filename = args.MSA_location.split(os.sep)[-1]
+        MSA_filename = args.MSA_location.split(os.sep)[-1] if args.MSA_location is not None else None
         MSA_weights_filename = args.MSA_sequence_weights_filename
         MSA_start_position = args.MSA_start
         MSA_end_position = args.MSA_end

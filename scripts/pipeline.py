@@ -41,7 +41,6 @@ def parse_args():
     parser.add_argument('--MSA_end', default=None, type=int, help='Index of last AA covered by the MSA relative to target_seq coordinates (1-indexing)')
     parser.add_argument('--ESM_zero_shot_scoring_strategy', default='masked-marginals', type=str, help='Masking strategy to compute ESM zero-shot predictions')
     parser.add_argument('--deactivate_zero_shot_prediction', action='store_true', help='Whether to deactivate use of zero-shot fitness predictions as auxiliary labels')
-    parser.add_argument("--torch_hub_location", help="If your model checkpoints aren't stored in the ProteinNPT data folder, specify the path to your PyTorch hub.") # Note: Could also extend this to huggingface hub
     parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
 
     args = parser.parse_args()
@@ -58,18 +57,6 @@ if __name__ == "__main__":
         "Embeddings_ESM1v_final": "../proteinnpt/baselines/model_configs/Embeddings_ESM1v_final.json",
         "OHE_MSAT_final": "../proteinnpt/baselines/model_configs/OHE_MSAT_final.json",
     }
-
-    # if args.torch_hub_location:
-    #     # All of the models seem to be in the root of the PyTorch hub (note: Tranception isn't on PyTorch hub?)
-    #     model_location_mapping = {
-    #         "MSA_Transformer": os.path.join(args.torch_hub_location,  "esm_msa1b_t12_100M_UR50S.pt"),
-    #         "Tranception": os.path.join(args.torch_hub_location, "Tranception_Large"),
-    #         "ESM1v": os.path.join(args.torch_hub_location, "esm1v_t33_650M_UR90S_1.pt"),
-    #         "ESM1v-2": os.path.join(args.torch_hub_location, "esm1v_t33_650M_UR90S_2.pt"),
-    #         "ESM1v-3": os.path.join(args.torch_hub_location, "esm1v_t33_650M_UR90S_3.pt"),
-    #         "ESM1v-4": os.path.join(args.torch_hub_location, "esm1v_t33_650M_UR90S_4.pt"),
-    #         "ESM1v-5": os.path.join(args.torch_hub_location, "esm1v_t33_650M_UR90S_5.pt"),
-    #     }
 
     model_location_mapping = {
         "MSA_Transformer": os.path.join(args.proteinnpt_data_location, "ESM", "MSA_Transformer", "esm_msa1b_t12_100M_UR50S.pt"),
@@ -141,6 +128,8 @@ if __name__ == "__main__":
                 "weight_file_name": weight_file_name,
                 "path_to_hhfilter": args.proteinnpt_data_location + os.sep + "utils/hhfilter",
             }
+        else:
+            msat_kwargs = {}
 
         run_embeddings(
             input_data_location=args.assay_data_location,
@@ -150,10 +139,11 @@ if __name__ == "__main__":
             max_positions=args.max_positions,
             batch_size=args.batch_size,
             target_seq=args.target_seq,
-            MSA_start=args.MSA_start, # If not set, this will be None
+            MSA_start=args.MSA_start,
             MSA_end=args.MSA_end,
             path_to_clustalomega=os.path.join(args.proteinnpt_data_location, "utils/clustal-omega") if args.indel_mode else None,
             use_cpu=args.use_cpu,
+            indel_mode=args.indel_mode,
             **msat_kwargs,
         )
 
@@ -168,6 +158,7 @@ if __name__ == "__main__":
     else:
         if not os.path.exists(args.zero_shot_predictions_folder): os.mkdir(args.zero_shot_predictions_folder)
     zero_shot_scores_folder = args.zero_shot_predictions_folder + os.sep + "indels" if args.indel_mode else args.zero_shot_predictions_folder + os.sep + "substitutions"
+    if not os.path.exists(zero_shot_scores_folder): os.mkdir(zero_shot_scores_folder)
     zero_shot_fitness_predictions_location = zero_shot_scores_folder + os.sep + DMS_id + ".csv"
     score_name_mapping_original_names = {
             "Tranception" : "avg_score",
@@ -192,6 +183,7 @@ if __name__ == "__main__":
         print("#"*100+"\n Step2: No zero-shot fitness predictions used for the {} assay \n".format(DMS_id)+"#"*100)
     elif not os.path.exists(zero_shot_fitness_predictions_location) or not zero_shot_model_computed:
         print("#"*100+"\n Step2: Computing zero-shot fitness predictions for the {} assay \n".format(DMS_id)+"#"*100)
+        if not os.path.exists(zero_shot_scores_folder + os.sep + model_config['aa_embeddings']): os.mkdir(zero_shot_scores_folder + os.sep + model_config['aa_embeddings'])
         if model_config['aa_embeddings']=="MSA_Transformer":
             zero_shot_run_parameters = "--model-location {} \
                 --model_type MSA_Transformer \
@@ -214,6 +206,7 @@ if __name__ == "__main__":
                     )
             if args.MSA_start: zero_shot_run_parameters += "--MSA_start {} ".format(args.MSA_start)
             if args.MSA_end: zero_shot_run_parameters += "--MSA_end {} ".format(args.MSA_end)
+            subprocess.run("python zero_shot_fitness_esm.py "+zero_shot_run_parameters, check=True, shell=True)
         elif model_config['aa_embeddings']=="ESM1v":
             zero_shot_run_parameters = "--model-location {} {} {} {} {} \
                 --model_type ESM1v \
@@ -232,6 +225,7 @@ if __name__ == "__main__":
                     args.target_seq,
                     args.ESM_zero_shot_scoring_strategy
                 )
+            subprocess.run("python zero_shot_fitness_esm.py "+zero_shot_run_parameters, check=True, shell=True)
         elif model_config['aa_embeddings']=="Tranception":
             DMS_data_folder = os.sep.join(args.assay_data_location.split(os.sep)[:-1])
             DMS_file_name = args.assay_data_location.split(os.sep)[-1]
@@ -261,8 +255,7 @@ if __name__ == "__main__":
             if args.MSA_start: zero_shot_run_parameters += "--MSA_start {} ".format(args.MSA_start)
             if args.MSA_end: zero_shot_run_parameters += "--MSA_end {} ".format(args.MSA_end)
             if args.indel_mode: zero_shot_run_parameters += "--indel_mode --clustal_omega_location {} ".format(args.proteinnpt_data_location + os.sep + "utils/clustal-omega")
-
-        subprocess.run("python zero_shot_fitness_esm.py "+zero_shot_run_parameters, check=True, shell=True)
+            subprocess.run("python zero_shot_fitness_tranception.py "+zero_shot_run_parameters, check=True, shell=True)
 
         #Merge zero-shot files
         merge = assay_data.copy()[['mutant','mutated_sequence']]
