@@ -188,8 +188,8 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
             batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen) #drop the dummy batch dimension from the tokenizer when using ESM1v / LinearEmbedding
     elif args.aa_embeddings == "Tranception":
         _, sequence = zip(*batch['mutant_mutated_seq_pairs'])
-        batch_token_sequences = torch.tensor(model.alphabet(sequence)['input_ids'])
-    
+        batch_token_sequences = torch.tensor(model.alphabet(sequence, add_special_tokens=True, truncation=True, padding=True, max_length=model.aa_embedding.config.n_ctx)['input_ids'])
+        
     # Mask protein sequences
     batch_masked_tokens, batch_token_labels, masked_indices = mask_protein_sequences(
         inputs = batch_token_sequences, 
@@ -198,7 +198,10 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         proba_random_mutation = 0.1, 
         proba_unchanged = 0.1
     )
-    if args.sequence_embeddings_location is not None: 
+    if args.sequence_embeddings_location is not None:
+        if sequence_embeddings.shape[1] > masked_indices.shape[1]: # When dealing with sequences of different sizes, and sequences in batch happen to be all smaller than longest sequence in assay for which we computed embeddings
+            extra_padding_in_embeddings = (sequence_embeddings.shape[1] - masked_indices.shape[1])
+            sequence_embeddings = sequence_embeddings[:,:-extra_padding_in_embeddings]
         sequence_embeddings[masked_indices] = 0.0
 
     batch_masked_tokens = batch_masked_tokens.to(device)

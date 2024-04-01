@@ -254,10 +254,12 @@ class ProteinNPTModel(nn.Module):
         x = self.dropout_module(x)
 
         if padding_mask is not None:
-            padding_mask_with_targets = torch.zeros(num_MSAs_in_batch, num_sequences_in_alignments, seqlen + self.num_targets_input)
+            B, N, L, D = x.shape
+            padding_mask_with_targets = torch.zeros(B, N, L).to(x.device)
             padding_mask_with_targets[...,:seqlen] = padding_mask
             padding_mask = padding_mask_with_targets
             x = x * (1 - padding_mask.unsqueeze(-1).type_as(x))
+            padding_mask = padding_mask.bool()
         
         repr_layers = set(repr_layers)
         hidden_representations = {}
