@@ -99,8 +99,8 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
             batch['mutant_mutated_seq_pairs'] = list(zip(mutants,mutated_seqs_padded))
         batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])        
             
-        if (args.aa_embeddings != "MSA_Transformer") or (args.sequence_embeddings_location is not None):
-            # Drop unnecessary dimension if model is not MSAT
+        if args.aa_embeddings=="MSA_Transformer" and args.sequence_embeddings_location is not None:
+            # Drop unnecessary dimension if embedding model is MSAT and embeddings are retrieved from disk
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = batch_token_sequences.size()
             batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen)
             
