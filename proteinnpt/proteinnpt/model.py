@@ -46,7 +46,7 @@ class ProteinNPTModel(nn.Module):
         self.tranception_attention = False
         
         assert self.args.embed_dim % self.args.attention_heads ==0, "Embedding size {} needs to be a multiple of number of heads {}".format(self.args.embed_dim, self.args.attention_heads)
-        if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
+        if self.args.aa_embeddings=="MSA_Transformer" or args.aa_embeddings.startswith("ESM"):
             model, _ = load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             self.aa_embedding_dim = self.aa_embedding.embed_tokens.weight.shape[-1]
@@ -118,7 +118,7 @@ class ProteinNPTModel(nn.Module):
         self.emb_layer_norm_before = ESM1bLayerNorm(self.args.embed_dim)
         self.emb_layer_norm_after = ESM1bLayerNorm(self.args.embed_dim)
         
-        if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
+        if self.args.aa_embeddings=="MSA_Transformer" or args.aa_embeddings.startswith("ESM"):
             weight = self.aa_embedding.embed_tokens.weight
         elif self.args.aa_embeddings == "Tranception":
             weight = self.aa_embedding.lm_head.weight
@@ -195,7 +195,7 @@ class ProteinNPTModel(nn.Module):
         padding_mask = tokens.eq(self.padding_idx) 
         if not padding_mask.any(): padding_mask = None
         
-        if self.args.aa_embeddings == "MSA_Transformer" and self.args.sequence_embeddings_location is None:
+        if self.args.aa_embeddings == "MSA_Transformer" and self.args.sequence_embeddings_location is None: #If loading MSAT embeddings from disk, we have dropped one dim already
             assert tokens.ndim == 3, "Finding dimension of tokens to be: {}".format(tokens.ndim)
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = tokens.size() # N, B, L (seqs with labels, seqs in MSA, seq length)
             batch_size = num_MSAs_in_batch
@@ -210,8 +210,15 @@ class ProteinNPTModel(nn.Module):
                 output = self.aa_embedding(tokens, repr_layers=[12])
                 x = output["representations"][12][:] # N, B, L, D
                 x = x[:,0,:,:] # N, L, D. #In each MSA batch the first sequence is what we care about. The other MSA sequences were just to compute embeddings and logits
-            elif self.args.aa_embeddings == "ESM1v":
-                last_layer_index = 33
+            elif self.args.aa_embeddings.startswith("ESM"):
+                if self.args.aa_embeddings=="ESM1v":
+                    last_layer_index = 33
+                elif self.args.aa_embeddings=="ESM2_15B":
+                    last_layer_index = 48
+                elif self.args.aa_embeddings=="ESM2_3B":
+                    last_layer_index = 36
+                elif self.args.aa_embeddings=="ESM2_650M":
+                    last_layer_index = 33
                 output = self.aa_embedding(tokens, repr_layers=[last_layer_index])
                 x = output["representations"][last_layer_index][:] # N, L, D
             elif self.args.aa_embeddings =="Linear_embedding":

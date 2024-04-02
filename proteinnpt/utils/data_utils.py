@@ -5,6 +5,7 @@ from scipy.stats import spearmanr
 import torch
 import h5py
 from datasets import Dataset
+from proteinnpt.utils.tranception.utils.scoring_utils import get_mutated_sequence
 
 def standardize(x, epsilon = 1e-10):
     return (x - x.mean()) / (x.std() + epsilon)
@@ -36,6 +37,17 @@ def split_data_based_on_test_fold_index(dataframe, fold_variable_name = 'fold_mo
     del test[fold_variable_name]
     return train, val, test
 
+def cleanup_ids_assay_data(df, indel_mode=False, target_seq=None):
+    assert 'mutated_sequence' in df.columns or 'mutant' in df.columns, "assay did not reference mutant nor mutated_sequence"
+    if 'mutated_sequence' not in df: 
+        df['mutated_sequence'] = df['mutant'].apply(lambda x: get_mutated_sequence(target_seq, x))
+    if 'mutant' not in df: 
+        if not indel_mode and target_seq is not None: #If substitutions assay, we reconstruct the mutants by comparing the mutated sequences with the target sequence
+            df['mutant'] = df["mutated_sequence"].apply(lambda x: ':'.join([wt + str(i+1) + mut for i, (wt, mut) in enumerate(zip(target_seq, x)) if wt != mut]))
+        else: #If indels we default to dummy mutant names
+            df['mutant'] = df.index.to_series().apply(lambda x: "mutant_" + str(x))
+    return df
+
 def get_train_val_test_data(args, assay_file_names):
     target_names = args.target_config.keys() 
     assay_data={}
@@ -49,18 +61,21 @@ def get_train_val_test_data(args, assay_file_names):
     assert main_target_name is not None, "No main target referenced. Please update config to select a unique main target."
     assert main_target_name_count <= 1, "Several main targets referenced. Please update config to select a unique main target."
     
-    assay_data[main_target_name] = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_names[main_target_name])[['mutant','mutated_sequence',args.target_config[main_target_name]["var_name"],args.fold_variable_name]] 
+    assay_data[main_target_name] = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_names[main_target_name]) 
+    assay_data[main_target_name] = cleanup_ids_assay_data(assay_data[main_target_name])[['mutant','mutated_sequence',args.target_config[main_target_name]["var_name"],args.fold_variable_name]]
     assay_data[main_target_name].columns = ['mutant','mutated_sequence', main_target_name, args.fold_variable_name]
     merge = assay_data[main_target_name]
     
     for target_name in target_names:
         if target_name!=main_target_name:
-            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name])[['mutant',args.target_config[target_name]["var_name"]]] 
+            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name]) 
+            assay_data[target_name] = cleanup_ids_assay_data(assay_data[target_name])[['mutant',args.target_config[target_name]["var_name"]]]
             assay_data[target_name].columns = ['mutant',target_name]
             merge = pd.merge(merge, assay_data[target_name], how='outer', on='mutant')
             
     if args.augmentation=="zero_shot_fitness_predictions_covariate":
-        zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])[['mutant',args.zero_shot_fitness_predictions_var_name]]
+        zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])
+        zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions)[['mutant',args.zero_shot_fitness_predictions_var_name]]
         zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
         zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
         merge = pd.merge(merge,zero_shot_fitness_predictions,how='left',on='mutant')

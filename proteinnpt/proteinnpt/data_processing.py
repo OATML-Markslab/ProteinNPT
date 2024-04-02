@@ -180,10 +180,10 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         MSA_sequences = batch['mutant_mutated_seq_pairs'][num_all_mutated_sequences_input:]
         batch['mutant_mutated_seq_pairs'] = [ [sequence] + MSA_sequences for sequence in all_mutated_sequences_input]
 
-    if args.aa_embeddings in ["MSA_Transformer","ESM1v","Linear_embedding"]:
+    if args.aa_embeddings in ["MSA_Transformer", "Linear_embedding"] or args.aa_embeddings.startswith("ESM"):
         token_batch_converter = alphabet.get_batch_converter()
         batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])
-        if (args.aa_embeddings != "MSA_Transformer") or (args.sequence_embeddings_location is not None): 
+        if args.aa_embeddings=="MSA_Transformer" and args.sequence_embeddings_location is not None: #If loading MSAT embeddings from disk, we drop the MSA dimension (done already if not MSAT via the different tokenizer)
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = batch_token_sequences.size()
             batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen) #drop the dummy batch dimension from the tokenizer when using ESM1v / LinearEmbedding
     elif args.aa_embeddings == "Tranception":

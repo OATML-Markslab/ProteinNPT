@@ -217,7 +217,7 @@ class MSA_processing:
         # Refactored into its own function so that we can call it separately
         if self.use_weights:
             if os.path.isfile(self.weights_location):
-                print("Loading sequence weights from disk")
+                print("Loading sequence weights from disk: {}".format(self.weights_location))
                 self.weights = np.load(file=self.weights_location)
             else:
                 print("Computing sequence weights")
@@ -247,7 +247,6 @@ class MSA_processing:
         self.Neff = np.sum(self.weights)
         print("Neff =", str(self.Neff))
         print("Number of sequences: ", self.num_sequences)
-        
         assert self.weights.shape[0] == self.num_sequences  # == self.one_hot_encoding.shape[0]
         self.seq_name_to_weight={}  # For later, if we want to remove certain sequences and associated weights
         for i,seq_name in enumerate(self.seq_name_to_sequence.keys()):
@@ -309,7 +308,7 @@ def filter_msa(filename, path_to_hhfilter, hhfilter_min_cov=75, hhfilter_max_seq
         wget https://github.com/soedinglab/hh-suite/releases/download/v3.3.0/hhsuite-3.3.0-AVX2-Linux.tar.gz; tar xvfz hhsuite-3.3.0-AVX2-Linux.tar.gz; export PATH="$(pwd)/bin:$(pwd)/scripts:$PATH"
     """
     input_folder = '/'.join(filename.split('/')[:-1])
-    msa_name = filename.split('/')[-1].split('.')[0]
+    msa_name = filename.split('/')[-1].split('.a2m')[0]
     preprocessed_filename = input_folder+os.sep+'preprocessed'+os.sep+msa_name
     output_filename = input_folder+os.sep+'hhfiltered'+os.sep+msa_name+'_hhfiltered_cov_'+str(hhfilter_min_cov)+'_maxid_'+str(hhfilter_max_seq_id)+'_minid_'+str(hhfilter_min_seq_id)+'.a2m'
     

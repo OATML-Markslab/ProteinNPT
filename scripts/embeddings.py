@@ -20,7 +20,7 @@ from proteinnpt.utils.tranception.utils.scoring_utils import get_sequence_slices
 from proteinnpt.utils.esm.data import Alphabet
 from proteinnpt.utils.esm.pretrained import load_model_and_alphabet
 from proteinnpt.utils.msa_utils import weighted_sample_MSA, process_MSA, align_new_sequences_to_msa
-from proteinnpt.utils.data_utils import collate_fn_protein_npt, slice_sequences
+from proteinnpt.utils.data_utils import collate_fn_protein_npt, slice_sequences, cleanup_ids_assay_data
 
 
 def parse_arguments():
@@ -29,7 +29,7 @@ def parse_arguments():
     parser.add_argument('--assay_index', default=0, type=int, help='Index of assay in the ProteinGym reference file to compute embeddings for')
     parser.add_argument('--input_data_location', default=None, type=str, help='Location of input data with all mutated sequences [If a reference file is used, this is the location where are assays are stored. If a single csv file is passed, this is the full path to that assay data]')
     parser.add_argument('--output_data_location', default=None, type=str, help='Location of output embeddings')
-    parser.add_argument('--model_type', default='Tranception', type=str, help='Model type to compute embeddings with')
+    parser.add_argument('--model_type', default='Tranception', type=str, help='Model type to compute embeddings with ["MSA_Transformer", "ESM1v", "Tranception"]')
     parser.add_argument('--model_location', default=None, type=str, help='Location of model used to embed protein sequences')
     parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
     parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]')
@@ -52,12 +52,8 @@ def parse_arguments():
     parser.add_argument("--use_cpu", action="store_true", help="Force the use of CPU instead of GPU (considerably slower). If this option is not chosen, the script will raise an error if the GPU is not available.")
     return parser.parse_args()
 
-
-model_type_options = ["MSA_Transformer", "ESM1v", "Tranception"]
-
-
 def process_embeddings_batch(batch, model, model_type, alphabet, device, max_positions, long_sequences_slicing_method, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, num_MSA_sequences=None, eval_mode = True, start_idx=1, indel_mode=False, fast_MSA_mode=False, fast_MSA_aligned_sequences=None, fast_MSA_short_names_mapping=None, clustalomega_path=None):
-    if model_type in ["MSA_Transformer","ESM1v"]:
+    if model_type=="MSA_Transformer" or model_type.startswith("ESM"):
         raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1]) #Selects the first mutant-seq pair, and the sequence is 1-indexed in that pair
         raw_batch_size = len(batch['mutant_mutated_seq_pairs']) # Effective number of mutated sequences to be scored (could be lower than num_MSA_sequences in practice, eg., if we're at the end of the train_iterator)
         # If model is MSAT and MSA does not cover full sequence length, we chop off all sequences to be scored as needed so that everything lines up properly.
@@ -119,9 +115,6 @@ def process_embeddings_batch(batch, model, model_type, alphabet, device, max_pos
                 batch['mutant_mutated_seq_pairs'] = [ [sequence] + MSA_sequences for sequence in sequences_to_score]    
         token_batch_converter = alphabet.get_batch_converter()
         batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])    
-        if model_type!="MSA_Transformer": 
-            num_MSAs_in_batch, num_sequences_in_alignments, seqlen = batch_token_sequences.size()
-            batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen) #drop the dummy batch dimension from the tokenizer when not using MSAT
         batch_token_sequences = batch_token_sequences.to(device)
         processed_batch = {
             'input_tokens': batch_token_sequences,
@@ -196,8 +189,8 @@ def main(
     print("Assay: {}".format(assay_file_name))
 
     # Load the PyTorch model from the checkpoint
-    if model_type in ["MSA_Transformer","ESM1v"]:
-        alphabet = Alphabet.from_architecture("msa_transformer")
+    if model_type=="MSA_Transformer" or model_type.startswith("ESM"):
+        alphabet = Alphabet.from_architecture("msa_transformer") if model_type=="MSA_Transformer" else Alphabet.from_architecture("ESM-1b")
         alphabet_size = len(alphabet)
         model, _ = load_model_and_alphabet(model_location)
         model.MSA_sample_sequences=None
@@ -217,7 +210,7 @@ def main(
         model.cuda()
     #DMS file
     df = pd.read_csv(input_data_location)
-    if 'mutated_sequence' not in df: df['mutated_sequence'] = df['mutant'] # May happen on indel assays
+    df = cleanup_ids_assay_data(df,indel_mode=args.indel_mode, target_seq=target_seq)
     df = df[['mutant','mutated_sequence']]
 
     # Path to the output file for storing embeddings and original sequences
@@ -245,7 +238,7 @@ def main(
     # Pre-processing over gaps in sequences: 
     # If single-sequence input model --> remove gaps everywhere
     # If MSA input (eg., MSA Transformer) --> keep all gaps and align MSA to the gaps of the first sequence (assumes the MSA was created for that first sequence without gaps). If no gaps in that first sequence we dont do anything.
-    if model_type in ["Tranception","ESM1v"]:
+    if model_type=="Tranception" or model_type.startswith("ESM"):
         df['mutated_sequence'] = df['mutated_sequence'].apply(lambda x: x.replace("-",""))
     elif model_type in ["MSA_Transformer"]:
         first_sequence = df['mutated_sequence'].values[0]
@@ -267,7 +260,7 @@ def main(
     # Create a data loader to iterate over the input sequences. 
     # For ESM models (MSA Transformer in particular), the bulk of the work is done within process_embeddings_batch
     # For Tranception, utils for slicing already exist so we directly process & tokenize sequences below
-    if model_type in ["MSA_Transformer","ESM1v"]:
+    if model_type=="MSA_Transformer" or model_type.startswith("ESM"):
         dataset_dict = {}
         dataset_dict['mutant_mutated_seq_pairs'] = list(zip(list(df['mutant']),list(df['mutated_sequence'])))
         dataset = Dataset.from_dict(dataset_dict)
@@ -368,11 +361,18 @@ def main(
                     pseudo_ppx = pseudo_ppx.mean(dim=-1).view(-1) #Average across sequence length
                     batch['mutant_mutated_seq_pairs'] = [seq[0] for seq in batch['mutant_mutated_seq_pairs']] # Remove MSA sequences from batch by selecting the first sequence in each MSA input sets
                 mutant, sequence = zip(*batch['mutant_mutated_seq_pairs'])
-            elif model_type == "ESM1v":
+            elif model_type.startswith("ESM"):
                 tokens = processed_batch['input_tokens']
                 assert tokens.ndim == 2, "Finding dimension of tokens to be: {}".format(tokens.ndim)
                 batch_size, seqlen = tokens.size()
-                last_layer_index = 33
+                if args.model_type=="ESM1v":
+                    last_layer_index = 33
+                elif args.model_type=="ESM2_15B":
+                    last_layer_index = 48
+                elif args.model_type=="ESM2_3B":
+                    last_layer_index = 36
+                elif args.model_type=="ESM2_650M":
+                    last_layer_index = 33
                 output = model(tokens, repr_layers=[last_layer_index])
                 embeddings = output["representations"][last_layer_index][:] # N, L, D
                 logits = output["logits"]

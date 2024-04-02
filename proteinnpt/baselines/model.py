@@ -33,7 +33,7 @@ class AugmentedPropertyPredictor(nn.Module):
         self.MSA_sample_sequences = None 
         self.device = None
         self.model_type = args.model_type 
-        if self.args.aa_embeddings in ["MSA_Transformer","ESM1v"]:
+        if self.args.aa_embeddings == "MSA_Transformer" or self.args.aa_embeddings.startswith("ESM"):
             model, _ = load_model_and_alphabet(args.embedding_model_location)
             self.aa_embedding = model
             if self.args.aa_embeddings == "MSA_Transformer": self.args.seq_len = self.args.MSA_seq_len #If MSA does not cover full sequence length, we adjust seq_len param to be MSA_len (sequences truncated as needed in preprocessing)
@@ -152,8 +152,15 @@ class AugmentedPropertyPredictor(nn.Module):
                 output = self.aa_embedding(tokens, repr_layers=[12])
                 x = output["representations"][12][:] # B, N, L, D
                 x = x[:,0,:,:] #In each MSA batch the first sequence is what we care about. The other MSA sequences were just to compute embeddings and logits
-            elif self.args.aa_embeddings == "ESM1v":
-                last_layer_index = 33
+            elif self.args.aa_embeddings.startswith("ESM"):
+                if self.args.aa_embeddings=="ESM1v":
+                    last_layer_index = 33
+                elif self.args.aa_embeddings=="ESM2_15B":
+                    last_layer_index = 48
+                elif self.args.aa_embeddings=="ESM2_3B":
+                    last_layer_index = 36
+                elif self.args.aa_embeddings=="ESM2_650M":
+                    last_layer_index = 33
                 output = self.aa_embedding(tokens, repr_layers=[last_layer_index])
                 x = output["representations"][last_layer_index][:] # N, L, D
             elif self.args.aa_embeddings == "Tranception":

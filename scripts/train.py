@@ -44,6 +44,9 @@ def setup_config_and_paths(args):
     zero_shot_predictions_mapping={
             "MSA_Transformer_pred": "MSA_Transformer_ensemble",
             "ESM1v_pred": "ESM1v_ensemble",
+            "ESM2_15B_pred": "ESM2_15B",
+            "ESM2_3B_pred": "ESM2_3B",
+            "ESM2_650M_pred": "ESM2_650M",
             "TranceptEVE_pred": "TranceptEVE_L",
             "Tranception_pred": "Tranception_L",
             "DeepSequence_pred": "DeepSequence_ensemble"
@@ -199,10 +202,16 @@ def main(args):
     if args.use_wandb: wandb.login()   
     
     # Create & initiate model   
-    alphabet = get_tranception_tokenizer() if args.aa_embeddings=="Tranception" else Alphabet.from_architecture("msa_transformer")
+    if args.aa_embeddings=="Tranception":
+        alphabet = get_tranception_tokenizer() if args.aa_embeddings=="Tranception" else Alphabet.from_architecture("msa_transformer")
+    elif args.aa_embeddings=="MSA_Transformer":
+        alphabet = Alphabet.from_architecture("msa_transformer")
+    else:
+        alphabet = Alphabet.from_architecture("ESM-1b")
+    
     if args.model_type=="ProteinNPT":
         model = ProteinNPTModel(args, alphabet)
-    elif args.model_type in ["MSA_Transformer_pred", "ESM1v_pred", "Tranception_pred", "TranceptEVE_pred", "Linear_Embedding_pred", "DeepSequence_pred"]:
+    elif args.model_type in ["MSA_Transformer_pred", "ESM1v_pred", "Tranception_pred", "TranceptEVE_pred", "Linear_Embedding_pred", "DeepSequence_pred"] or args.model_type.startswith("ESM2"):
         model = AugmentedPropertyPredictor(args, alphabet)
     if args.frozen_embedding_parameters and args.aa_embeddings in ["MSA_Transformer", "ESM1v", "Tranception"]:
         for para in model.aa_embedding.parameters():
@@ -225,7 +234,7 @@ def main(args):
                 print("If not using a reference file and predicting several targets simultaneously, we assume the different targets are all present in the same assay file")
                 assay_file_names[target] = assay_file_name
             else:
-                assay_file_names[target] = assay_reference_file[target][assay_reference_file["DMS_id"]==assay_id].values[0]
+                assay_file_names[target] = assay_reference_file[assay_reference_file["DMS_id"]==assay_id]['DMS_filename'].values[0]
             
     # Load training, val and test data
     if args.assay_reference_file_location is not None:
@@ -354,7 +363,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_name_suffix', default=None, type=str, help='Suffix to reference model')
     parser.add_argument('--sequence_embeddings_folder', required=True, type=str, help='Location of stored embeddings on disk')
     parser.add_argument('--embedding_model_location', default=None, type=str, help='Location of model used to embed protein sequences')
-    parser.add_argument('--aa_embeddings', default=None, type=str, help='Type of protein sequence embedding [MSA_Transformer|Tranception|ESM1v|Linear_embedding]')
+    parser.add_argument('--aa_embeddings', default=None, type=str, help='Type of protein sequence embedding [MSA_Transformer|Tranception|ESM1v|ESM2|Linear_embedding]')
     parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]. We do not slice OHE input')
     parser.add_argument('--max_positions', default=None, type=int, help='Maximum context length')
     parser.add_argument('--embed_dim', default=None, type=int, help='Embedding dimension')
