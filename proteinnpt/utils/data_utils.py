@@ -106,7 +106,7 @@ def get_train_val_test_data(args, assay_file_names):
     test_data = Dataset.from_dict(splits_dict['test'])
     return train_data, val_data, test_data, target_processing
 
-def preprocess_training_targets(training_targets, target_config):
+def preprocess_training_targets(training_targets, target_config, verbose=True):
     """
     training_targets: dict of tensors of target values. Assumed to be 1D continuous values or 1D categorical values
     
@@ -122,13 +122,12 @@ def preprocess_training_targets(training_targets, target_config):
             target_processing[target_name]['mean']=np.nanmean(training_targets[target_name])
             target_processing[target_name]['std']=np.nanstd(np.array(training_targets[target_name]))
             target_processing[target_name]['P95']=np.nanquantile(np.array(training_targets[target_name]), q=0.95)
-            print("Target processing train set: {}".format(target_processing))
             training_targets[target_name] = (training_targets[target_name] - target_processing[target_name]['mean']) / target_processing[target_name]['std']
         else:
             # One-hot encoding
             target_processing[target_name]={}
             unique_categories = set(training_targets[target_name].dropna().unique())
-            assert target_config[target_name]["dim"]==len(unique_categories), "list_dim_input_targets not properly referenced for target indexed: {}".format(target_name)
+            #assert target_config[target_name]["dim"]==len(unique_categories), "list_dim_input_targets not properly referenced for target indexed: {}".format(target_name)
             category_to_index = dict((c, i) for i, c in enumerate(unique_categories))
             index_to_category = dict((i, c) for i, c in enumerate(unique_categories))
             category_to_index['<mask>'] = len(unique_categories) #Set <mask> category to largest index value
@@ -136,6 +135,7 @@ def preprocess_training_targets(training_targets, target_config):
             training_targets[target_name] = torch.tensor([category_to_index[val] for val in training_targets[target_name]])
             target_processing[target_name]['category_to_index'] = category_to_index
             target_processing[target_name]['index_to_category'] = index_to_category
+    if verbose: print("Target processing train set: {}".format(target_processing))
     return training_targets, target_processing
 
 def preprocess_test_targets(test_targets, target_config, target_processing):

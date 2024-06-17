@@ -32,7 +32,7 @@ def PNPT_sample_training_points_inference(training_sequences, sequences_sampling
         weights = weights / weights.sum()
     return np.random.choice(range(num_sequences_training_data), replace=replace, p=weights, size = num_sampled_points)
 
-def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, target_processing=None, training_sequences = None, proba_target_mask = 0.15, proba_aa_mask = 0.15, eval_mode = True, start_idx=1, selected_indices_seed=0, indel_mode=False):
+def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, target_processing=None, training_sequences = None, proba_target_mask = 0.15, proba_aa_mask = 0.15, eval_mode = True, start_idx=1, selected_indices_seed=0, indel_mode=False, verbose=True):
     """
     If MSA_sequences is not None, then we sample args.num_MSA_sequences_per_training_instance sequences from it that we add to the batch. 
     
@@ -49,7 +49,7 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
     batch_target_labels = {} 
     for target_name in target_names:
         if target_name not in batch: 
-            print("Target values were not passed in input batch. We assume all corresponding values are missing & to be predicted.")
+            if verbose: print("Target values were not passed in input batch. We assume all corresponding values are missing & to be predicted.")
             batch[target_name] = torch.tensor([np.nan] * number_of_mutated_seqs_to_score) # By construction this will set all labels to -100 in subsequent mask_targets.
             eval_mode = True
         if target_name in target_names_unknown:

@@ -13,7 +13,7 @@ setup(
         'proteinnpt': ['proteinnpt/utils/tranception/utils/tokenizers/Basic_tokenizer']
     },
     author="Pascal Notin and Ruben Weitzman",
-    version="1.6",
+    version="1.5.2",
     license="MIT",
     url="https://github.com/OATML-Markslab/ProteinNPT",    
     packages=find_packages()
