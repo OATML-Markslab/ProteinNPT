@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-# from transformers import ConvBertConfig, ConvBertLayr
+# from transformers import ConvBertConfig, ConvBertLayer
 
 from ..utils.esm.modules import ESM1bLayerNorm
 from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
