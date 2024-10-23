@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-from transformers import ConvBertConfig, ConvBertLayer
+# from transformers import ConvBertConfig, ConvBertLayer
 
 from ..utils.esm.modules import (
     AxialTransformerLayer,
