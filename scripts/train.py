@@ -31,25 +31,25 @@ def setup_config_and_paths(args):
     for local_path in ['embedding_model_location','MSA_data_folder','MSA_weight_data_folder','path_to_hhfilter']:
         if getattr(args, local_path) and local_path in args_setup_from_config:
             setattr(args, local_path, args.data_location + os.sep + getattr(args, local_path))
-    if not os.path.exists(args.data_location + os.sep + 'model_predictions'): os.mkdir(args.data_location + os.sep + 'model_predictions')
-    if not os.path.exists(args.data_location + os.sep + 'checkpoint'): os.mkdir(args.data_location + os.sep + 'checkpoint')
+    if not os.path.exists(args.data_location + os.sep + 'model_predictions'): os.makedirs(args.data_location + os.sep + 'model_predictions', exist_ok=True)
+    if not os.path.exists(args.data_location + os.sep + 'checkpoint'): os.makedirs(args.data_location + os.sep + 'checkpoint', exist_ok=True)
     args.output_scores_location = args.data_location + os.sep + 'model_predictions' + os.sep + args.model_name_suffix
-    if not os.path.exists(args.output_scores_location): os.mkdir(args.output_scores_location)
+    if not os.path.exists(args.output_scores_location): os.makedirs(args.output_scores_location, exist_ok=True)
     args.model_location = args.data_location + os.sep + 'checkpoint' + os.sep + args.model_name_suffix
-    if not os.path.exists(args.model_location): os.mkdir(args.model_location)
+    if not os.path.exists(args.model_location): os.makedirs(args.model_location, exist_ok=True)
     if args.assay_data_location and not args.assay_data_folder: args.assay_data_folder = [ os.sep.join(args.assay_data_location.split(os.sep)[:-1]) ] # args.assay_data_folder is a list
 
     # Target config
     args.target_config=json.load(open(args.target_config_location))
     zero_shot_predictions_mapping={
-            "MSA_Transformer_pred": "MSA_Transformer_ensemble",
-            "ESM1v_pred": "ESM1v_ensemble",
-            "ESM2_15B_pred": "ESM2_15B",
-            "ESM2_3B_pred": "ESM2_3B",
-            "ESM2_650M_pred": "ESM2_650M",
-            "TranceptEVE_pred": "TranceptEVE_L",
-            "Tranception_pred": "Tranception_L",
-            "DeepSequence_pred": "DeepSequence_ensemble"
+            "MSA_Transformer_pred": "esm_msa1b_t12_100M_UR50S_ensemble",
+            "ESM1v_pred": "Ensemble_ESM1v",
+            "ESM2_15B_pred": "esm2_t48_15B_UR50D",
+            "ESM2_3B_pred": "esm2_t36_3B_UR50D",
+            "ESM2_650M_pred": "esm2_t33_650M_UR50D",
+            "TranceptEVE_pred": "avg_score",
+            "Tranception_pred": "avg_score",
+            "DeepSequence_pred": "evol_indices_ensemble"
         }
     if args.model_type=="ProteinNPT": zero_shot_predictions_mapping["ProteinNPT"]=zero_shot_predictions_mapping[args.aa_embeddings+"_pred"]
     if args.augmentation=="zero_shot_fitness_predictions_auxiliary_labels": # Add auxiliary label to target_config
@@ -281,17 +281,21 @@ def main(args):
     )
     # Load model from checkpoint or train from scratch
     if args.load_model_checkpoint:
-        checkpoint_location = args.model_location +os.sep + model_name + os.sep + 'final' + os.sep + 'checkpoint.t7'
-        checkpoint = torch.load(checkpoint_location)
-        # load the state dictionary into your model
-        model.load_state_dict(checkpoint['state_dict'], strict=False)
-        trainer_final_status = {
-            'total_training_steps': -1,
-            'total_training_epochs': -1,
-            'total_train_time': -1
-        }
-        model.cuda()
-        model.set_device()
+        try:
+            checkpoint_location = args.model_location +os.sep + model_name + os.sep + 'final' + os.sep + 'checkpoint.t7'
+            checkpoint = torch.load(checkpoint_location)
+            # load the state dictionary into your model
+            model.load_state_dict(checkpoint['state_dict'], strict=False)
+            trainer_final_status = {
+                'total_training_steps': -1,
+                'total_training_epochs': -1,
+                'total_train_time': -1
+            }
+            model.cuda()
+            model.set_device()
+        except FileNotFoundError:
+            print("No checkpoint found at location: {}".format(checkpoint_location))
+            trainer_final_status = trainer.train()
     else:
         trainer_final_status = trainer.train()
     print('Final training step: {} | Num training epochs: {} | Total train time: {} hrs'.format(trainer_final_status['total_training_steps'], trainer_final_status['total_training_epochs'], str(trainer_final_status['total_train_time'] / 3600)))
