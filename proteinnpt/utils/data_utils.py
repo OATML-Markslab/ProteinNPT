@@ -84,6 +84,8 @@ def get_train_val_test_data(args, assay_file_names):
             
     if args.augmentation=="zero_shot_fitness_predictions_covariate":
         zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])
+        # Remove wt row if present
+        zero_shot_fitness_predictions = zero_shot_fitness_predictions[zero_shot_fitness_predictions["mutant"] != "wt"].reset_index(drop=True)
         zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions, target_seq=target_seq)[['mutant',args.zero_shot_fitness_predictions_var_name]]
         zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
         zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
