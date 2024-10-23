@@ -2,7 +2,7 @@
     "model_type": "DeepSequence_pred",
     "model_name_suffix": "OHE_DeepSequence_final",
     "aa_embeddings": "One_hot_encoding",
-    "augmentation": "unsupervised_fitness_predictions",
+    "augmentation": "zero_shot_fitness_predictions_covariate",
     "target_prediction_head": "One_hot_encoding",
     "target_prediction_model": "linear",
     "weight_decay": 5e-3,
