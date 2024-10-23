@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-from transformers import ConvBertConfig, ConvBertLayer
+# from transformers import ConvBertConfig, ConvBertLayr
 
 from ..utils.esm.modules import ESM1bLayerNorm
 from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
@@ -66,7 +66,7 @@ class AugmentedPropertyPredictor(nn.Module):
         if self.args.target_prediction_head == "AA_embeddings_mean_pooled":
             target_pred_input_dim = self.args.embed_dim
         elif self.args.target_prediction_head == "One_hot_encoding":
-            target_pred_input_dim = (self.args.seq_len + 1) * self.alphabet_size if args.target_prediction_model!="CNN" else self.alphabet_size    #Add one for the BOS token
+            target_pred_input_dim = (self.args.seq_len + 2) * self.alphabet_size if args.target_prediction_model!="CNN" else self.alphabet_size    #Add one for the BOS token
         else:
             print(self.args.target_prediction_head)
             print("Error: Specified embedding aggregation invalid")
@@ -78,16 +78,16 @@ class AugmentedPropertyPredictor(nn.Module):
                         nn.Dropout(self.args.dropout),
                         nn.ReLU()
             )
-        elif args.target_prediction_model=="ConvBERT":
-            configuration = ConvBertConfig(
-                hidden_size = self.args.embed_dim,
-                num_attention_heads = self.args.attention_heads if self.args.attention_heads is not None else 4,
-                conv_kernel_size = self.args.conv_kernel_size,
-                hidden_act = "gelu",
-                hidden_dropout_prob = self.args.dropout,
-                attention_probs_dropout_prob = self.args.dropout
-            )
-            self.layer_pre_head = ConvBertLayer(configuration)
+        # elif args.target_prediction_model=="ConvBERT":
+        #     configuration = ConvBertConfig(
+        #         hidden_size = self.args.embed_dim,
+        #         num_attention_heads = self.args.attention_heads if self.args.attention_heads is not None else 4,
+        #         conv_kernel_size = self.args.conv_kernel_size,
+        #         hidden_act = "gelu",
+        #         hidden_dropout_prob = self.args.dropout,
+        #         attention_probs_dropout_prob = self.args.dropout
+        #     )
+        #     self.layer_pre_head = ConvBertLayer(configuration)
         elif args.target_prediction_model=="CNN":
             self.layer_pre_head = nn.Sequential(
                 nn.Conv1d(in_channels=target_pred_input_dim, out_channels=target_pred_input_dim, kernel_size = self.args.conv_kernel_size, padding='same'),
