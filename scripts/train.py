@@ -42,14 +42,14 @@ def setup_config_and_paths(args):
     # Target config
     args.target_config=json.load(open(args.target_config_location))
     zero_shot_predictions_mapping={
-            "MSA_Transformer_pred": "esm_msa1b_t12_100M_UR50S_ensemble",
-            "ESM1v_pred": "Ensemble_ESM1v",
-            "ESM2_15B_pred": "esm2_t48_15B_UR50D",
-            "ESM2_3B_pred": "esm2_t36_3B_UR50D",
-            "ESM2_650M_pred": "esm2_t33_650M_UR50D",
-            "TranceptEVE_pred": "avg_score",
-            "Tranception_pred": "avg_score",
-            "DeepSequence_pred": "evol_indices_ensemble"
+            "MSA_Transformer_pred": "MSA_Transformer_ensemble",
+            "ESM1v_pred": "ESM1v_ensemble",
+            "ESM2_15B_pred": "ESM2_15B",
+            "ESM2_3B_pred": "ESM2_3B",
+            "ESM2_650M_pred": "ESM2_650M",
+            "TranceptEVE_pred": "TranceptEVE_L",
+            "Tranception_pred": "Tranception_L",
+            "DeepSequence_pred": "DeepSequence_ensemble"
         }
     if args.model_type=="ProteinNPT": zero_shot_predictions_mapping["ProteinNPT"]=zero_shot_predictions_mapping[args.aa_embeddings+"_pred"]
     if args.augmentation=="zero_shot_fitness_predictions_auxiliary_labels": # Add auxiliary label to target_config
