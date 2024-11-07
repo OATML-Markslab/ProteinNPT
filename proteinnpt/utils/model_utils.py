@@ -505,6 +505,8 @@ class Trainer():
             output_scores = pd.DataFrame.from_dict(output_scores)
             output_scores_numeric_cols = [col_name for col_name in output_scores.columns if col_name not in ['mutated_sequence']]
             output_scores = output_scores[output_scores_numeric_cols]
+            output_scores = output_scores.drop_duplicates()
+            output_scores = output_scores.groupby("mutant", as_index=False).mean(numeric_only=True).reset_index(drop=True)
             assert len(output_scores)==output_scores['mutant'].nunique()
             mutated_seqs_dict = {}
             mutant_mutated_seqs = list(zip(*test_data['mutant_mutated_seq_pairs']))

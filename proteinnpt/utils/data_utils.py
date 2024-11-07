@@ -66,16 +66,27 @@ def get_train_val_test_data(args, assay_file_names):
     assay_data[main_target_name].columns = ['mutant','mutated_sequence', main_target_name, args.fold_variable_name]
     merge = assay_data[main_target_name]
     
+    # Get target sequence from mutated 
+    wt_sequence = list(merge.loc[0, 'mutated_sequence'])
+    mut_0 = merge.loc[0, 'mutant']
+    for mutation in mut_0.split(':'):
+        wt, pos, mut = mutation[0], int(mutation[1:-1]), mutation[-1]
+        assert wt_sequence[pos-1] == mut
+        wt_sequence[pos-1] = wt
+    target_seq = ''.join(wt_sequence)
+    
     for target_name in target_names:
         if target_name!=main_target_name:
             assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name]) 
-            assay_data[target_name] = cleanup_ids_assay_data(assay_data[target_name])[['mutant',args.target_config[target_name]["var_name"]]]
+            assay_data[target_name] = cleanup_ids_assay_data(assay_data[target_name], target_seq=target_seq)[['mutant',args.target_config[target_name]["var_name"]]]
             assay_data[target_name].columns = ['mutant',target_name]
             merge = pd.merge(merge, assay_data[target_name], how='outer', on='mutant')
             
     if args.augmentation=="zero_shot_fitness_predictions_covariate":
         zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])
-        zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions)[['mutant',args.zero_shot_fitness_predictions_var_name]]
+        # Remove wt row if present
+        zero_shot_fitness_predictions = zero_shot_fitness_predictions[zero_shot_fitness_predictions["mutant"] != "wt"].reset_index(drop=True)
+        zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions, target_seq=target_seq)[['mutant',args.zero_shot_fitness_predictions_var_name]]
         zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
         zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
         merge = pd.merge(merge,zero_shot_fitness_predictions,how='left',on='mutant')
