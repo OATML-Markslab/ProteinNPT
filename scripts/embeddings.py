@@ -210,7 +210,7 @@ def main(
         model.cuda()
     #DMS file
     df = pd.read_csv(input_data_location)
-    df = cleanup_ids_assay_data(df,indel_mode=args.indel_mode, target_seq=target_seq)
+    df = cleanup_ids_assay_data(df,indel_mode=indel_mode, target_seq=target_seq)
     df = df[['mutant','mutated_sequence']]
 
     # Path to the output file for storing embeddings and original sequences
@@ -365,13 +365,13 @@ def main(
                 tokens = processed_batch['input_tokens']
                 assert tokens.ndim == 2, "Finding dimension of tokens to be: {}".format(tokens.ndim)
                 batch_size, seqlen = tokens.size()
-                if args.model_type=="ESM1v":
+                if model_type=="ESM1v":
                     last_layer_index = 33
-                elif args.model_type=="ESM2_15B":
+                elif model_type=="ESM2_15B":
                     last_layer_index = 48
-                elif args.model_type=="ESM2_3B":
+                elif model_type=="ESM2_3B":
                     last_layer_index = 36
-                elif args.model_type=="ESM2_650M":
+                elif model_type=="ESM2_650M":
                     last_layer_index = 33
                 output = model(tokens, repr_layers=[last_layer_index])
                 embeddings = output["representations"][last_layer_index][:] # N, L, D
