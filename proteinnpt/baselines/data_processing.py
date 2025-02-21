@@ -6,13 +6,42 @@ import torch
 from ..utils.data_utils import slice_sequences, get_indices_retrieved_embeddings
 from ..utils.msa_utils import weighted_sample_MSA
 
-def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, eval_mode = True, indel_mode=False, start_idx=1):
-    """
-    start_idx is the one-indexed postion of the first residue in the sequence. If full sequence is passed (as always assumed in this codebase) this is equal to 1.
+def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_weights=None, MSA_start_position=None, MSA_end_position=None, eval_mode=True, indel_mode=False, start_idx=1):
+    """Processes a batch of sequences for baseline model input.
+
+    Handles various aspects of sequence processing including:
+    - Loading and processing pre-computed embeddings
+    - MSA sequence processing and sampling
+    - Sequence length adjustment and slicing
+    - Model-specific tokenization (Tranception, ESM, MSA Transformer)
+    - Special handling for insertions/deletions in sequences
+
+    Args:
+        batch (dict): Input batch containing:
+            - mutant_mutated_seq_pairs: List of (mutant, sequence) pairs
+            - Additional target values as specified in args.target_config
+        model: The baseline model instance
+        alphabet: Tokenizer alphabet for protein sequences
+        args: Configuration object containing model parameters
+        device: PyTorch device (CPU/GPU)
+        MSA_sequences (list, optional): List of MSA sequences
+        MSA_weights (numpy.ndarray, optional): Weights for MSA sequence sampling
+        MSA_start_position (int, optional): Start position for MSA sequence slice
+        MSA_end_position (int, optional): End position for MSA sequence slice
+        eval_mode (bool, optional): Whether to run in evaluation mode. Defaults to True
+        indel_mode (bool, optional): Whether to handle insertions/deletions. Defaults to False
+        start_idx (int, optional): One-indexed position of first residue. Defaults to 1
+
+    Returns:
+        dict: Processed batch containing:
+            - input_tokens: Tokenized sequences
+            - target_labels: Target values for prediction
+            - mutant_mutated_seq_pairs: Original sequence pairs
+            - sequence_embeddings: Pre-computed embeddings if available
     """
     target_names = args.target_config.keys()
-    raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1]) 
-    raw_batch_size = len(batch['mutant_mutated_seq_pairs']) 
+    raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1])
+    raw_batch_size = len(batch['mutant_mutated_seq_pairs'])
 
     if args.sequence_embeddings_location is not None and args.aa_embeddings!="One_hot_encoding":
         try:
@@ -29,7 +58,7 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
     batch_target_labels = defaultdict(list)
     for target_name in target_names: batch_target_labels[target_name] = batch[target_name].to(device)
 
-    if args.augmentation=="zero_shot_fitness_predictions_covariate": batch_target_labels['zero_shot_fitness_predictions'] = batch['zero_shot_fitness_predictions'].to(device) 
+    if args.augmentation=="zero_shot_fitness_predictions_covariate": batch_target_labels['zero_shot_fitness_predictions'] = batch['zero_shot_fitness_predictions'].to(device)
 
     if args.aa_embeddings=="MSA_Transformer":
         # If MSAT and MSA does not cover full sequence length, we chop off all sequences to be scored as needed so that everything lines up properly.
@@ -39,26 +68,26 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
             batch['mutant_mutated_seq_pairs'] = [ (mutant,seq[MSA_start_index:MSA_end_index]) for (mutant,seq) in batch['mutant_mutated_seq_pairs']]
             # Recompute sequence length (has potentially been chopped off above)
             raw_sequence_length = len(batch['mutant_mutated_seq_pairs'][0][1])
-        
-        #Sample MSA sequences as needed 
+
+        #Sample MSA sequences as needed
         if args.sequence_embeddings_location is None and args.num_MSA_sequences_per_training_instance > 0:
             assert MSA_weights is not None, "Trying to add MSA_sequences to scoring batch but no weights are provided"
             if model.MSA_sample_sequences is None:
                 model.MSA_sample_sequences = weighted_sample_MSA(
-                    MSA_all_sequences=MSA_sequences, 
-                    MSA_non_ref_sequences_weights=MSA_weights, 
+                    MSA_all_sequences=MSA_sequences,
+                    MSA_non_ref_sequences_weights=MSA_weights,
                     number_sampled_MSA_sequences=args.num_MSA_sequences_per_training_instance
                 )
             # Concatenate MSA sequences with labelled assay sequences
             batch['mutant_mutated_seq_pairs'] += model.MSA_sample_sequences
-        
+
     # Slice sequences around mutation if sequence longer than context length
     if args.max_positions is not None and raw_sequence_length + 1 > args.max_positions and args.sequence_embeddings_location is None: # Adding one for the BOS token
         if args.long_sequences_slicing_method=="center" and args.aa_embeddings=="MSA_Transformer":
             print("Center slicing method not adapted to MSA Transformer embedding as sequences would not be aligned in the same coordinate system anymore. Defaulting to 'left' mode.")
             args.long_sequences_slicing_method="left"
         batch['mutant_mutated_seq_pairs'], batch_target_labels, _ = slice_sequences(
-            list_mutant_mutated_seq_pairs = batch['mutant_mutated_seq_pairs'], 
+            list_mutant_mutated_seq_pairs = batch['mutant_mutated_seq_pairs'],
             max_positions=args.max_positions,
             method=args.long_sequences_slicing_method,
             rolling_overlap=args.max_positions//4,
@@ -68,7 +97,7 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
             target_names=target_names,
             num_extra_tokens=2 if args.aa_embeddings=="Tranception" else 1
         )
-    
+
     # Tokenize input sequences with Tranception or ESM tokenizer
     if args.aa_embeddings=="Tranception":
         for k, v in batch.items():
@@ -83,27 +112,27 @@ def process_batch(batch, model, alphabet, args, device, MSA_sequences=None, MSA_
         processed_batch['sequence_embeddings'] = sequence_embeddings
         processed_batch['target_labels'] = batch_target_labels
     else:
-        if args.aa_embeddings == "MSA_Transformer" and args.training_num_assay_sequences_per_batch_per_gpu > 1 and args.sequence_embeddings_location is None: 
+        if args.aa_embeddings == "MSA_Transformer" and args.training_num_assay_sequences_per_batch_per_gpu > 1 and args.sequence_embeddings_location is None:
             #Re-organize list of sequences to have training_num_assay_sequences_per_batch_per_gpu MSA batches, where in each the sequence to score is the first and the rest are the sampled MSA sequences.
             num_sequences = raw_batch_size + args.num_MSA_sequences_per_training_instance
             assert len(batch['mutant_mutated_seq_pairs']) == num_sequences, "Unexpected number of sequences"
             sequences_to_score = batch['mutant_mutated_seq_pairs'][:raw_batch_size]
             MSA_sequences = batch['mutant_mutated_seq_pairs'][raw_batch_size:]
             batch['mutant_mutated_seq_pairs'] = [ [sequence] + MSA_sequences for sequence in sequences_to_score]
-            
+
         token_batch_converter = alphabet.get_batch_converter()
         if indel_mode:
             mutants, mutated_seqs = list(zip(*batch['mutant_mutated_seq_pairs']))
             max_seq_length = max(len(s) for s in mutated_seqs)
             mutated_seqs_padded = [s.ljust(max_seq_length, "-") for s in mutated_seqs]
             batch['mutant_mutated_seq_pairs'] = list(zip(mutants,mutated_seqs_padded))
-        batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])        
-            
+        batch_sequence_names, batch_AA_sequences, batch_token_sequences = token_batch_converter(batch['mutant_mutated_seq_pairs'])
+
         if args.aa_embeddings=="MSA_Transformer" and args.sequence_embeddings_location is not None:
             # Drop unnecessary dimension if embedding model is MSAT and embeddings are retrieved from disk
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = batch_token_sequences.size()
             batch_token_sequences = batch_token_sequences.view(num_sequences_in_alignments, seqlen)
-            
+
         batch_token_sequences = batch_token_sequences.to(device)
         processed_batch = {
             'input_tokens': batch_token_sequences,

@@ -4,6 +4,24 @@ import pandas as pd
 from proteinnpt.utils.data_utils import cleanup_ids_assay_data
 
 def main(args):
+    """Merges zero-shot prediction scores from multiple models for a DMS assay.
+
+    Takes predictions from different protein language models and combines them
+    into a single file, ensuring proper alignment and data consistency.
+
+    Args:
+        args: Command line arguments containing:
+            - DMS_reference_file_path: Path to DMS reference file
+            - DMS_mutants_folder: Path to mutants data
+            - DMS_index: Index of DMS assay in reference
+            - zero_shot_scores_folder: Path to model predictions
+            - indel_mode: Whether handling insertions/deletions
+
+    Note:
+        Supports different model types including ensemble models.
+        Handles both mutation-based and sequence-based predictions.
+        Ensures no data loss during merging through consistency checks.
+    """
     mapping_protein_seq_DMS = pd.read_csv(args.DMS_reference_file_path)
     DMS_id=mapping_protein_seq_DMS["DMS_id"][args.DMS_index]
     print("Merging all zero-shot scores for DMS: "+str(DMS_id))
@@ -43,7 +61,7 @@ def main(args):
         model_score_file_path = args.zero_shot_scores_folder + os.sep + model_name + os.sep + DMS_file_name
         if os.path.exists(model_score_file_path):
             scores = pd.read_csv(model_score_file_path,low_memory=False)
-            if 'mutated_sequence' in scores: 
+            if 'mutated_sequence' in scores:
                 scores = scores[['mutated_sequence',score_name_mapping_original_names[model_name]]].drop_duplicates()
                 merge_key = 'mutated_sequence'
             else:
@@ -55,6 +73,16 @@ def main(args):
     merge.to_csv(args.zero_shot_scores_folder + os.sep + DMS_file_name, index=False)
 
 if __name__ == '__main__':
+    """Command-line interface for merging zero-shot predictions.
+
+    Example:
+        python merge_zero_shot.py
+            --DMS_reference_file_path path/to/reference.csv
+            --DMS_mutants_folder path/to/mutants
+            --DMS_index 0
+            --zero_shot_scores_folder path/to/scores
+            --indel_mode
+    """
     print("Merging zero-shot predictions score files")
     parser = argparse.ArgumentParser(description='Merge scoring')
     parser.add_argument('--DMS_reference_file_path', type=str, help='Path to reference file with list of DMS to score')

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-# from transformers import ConvBertConfig, ConvBertLayer
+from transformers import ConvBertConfig, ConvBertLayer
 
 from ..utils.esm.modules import (
     AxialTransformerLayer,
@@ -20,6 +20,31 @@ from ..utils.tranception.model_pytorch import TranceptionLMHeadModel
 from ..utils.model_utils import get_parameter_names
 
 class ProteinNPTModel(nn.Module):
+    """Neural Process Transformer model for protein sequence analysis.
+
+    This model combines transformer architecture with neural process networks to analyze
+    protein sequences and predict multiple target properties simultaneously. It supports
+    various embedding methods and can handle both continuous and categorical targets.
+
+    Args:
+        args: Configuration object containing model parameters including:
+            - model_type: Type of model architecture
+            - embed_dim: Embedding dimension
+            - attention_heads: Number of attention heads
+            - max_positions: Maximum sequence length
+            - dropout: Dropout rate
+            - target_config: Dictionary of target properties to predict
+        alphabet: Tokenizer alphabet for protein sequences
+
+    Attributes:
+        args: Model configuration parameters
+        alphabet: Tokenizer alphabet instance
+        target_names: List of target properties to predict
+        device: Device the model is running on
+        num_targets: Number of prediction targets
+        MSA_sample_sequences: MSA sequences for sampling
+        training_sample_sequences_indices: Training sequence indices
+    """
     def __init__(self, args, alphabet):
         super().__init__()
         self.args = args
@@ -44,7 +69,7 @@ class ProteinNPTModel(nn.Module):
         self.PNPT_no_reconstruction_error = False
         self.deactivate_col_attention = False
         self.tranception_attention = False
-        
+
         assert self.args.embed_dim % self.args.attention_heads ==0, "Embedding size {} needs to be a multiple of number of heads {}".format(self.args.embed_dim, self.args.attention_heads)
         if self.args.aa_embeddings=="MSA_Transformer" or args.aa_embeddings.startswith("ESM"):
             model, _ = load_model_and_alphabet(args.embedding_model_location)
@@ -80,14 +105,14 @@ class ProteinNPTModel(nn.Module):
                     )
 
         self.target_embedding =  nn.ModuleDict(
-            {   
+            {
                 target_name:
                 nn.Linear(
-                    self.args.target_config[target_name]["dim"] + 1, #Need to add one as we append the mask flag to each input target 
+                    self.args.target_config[target_name]["dim"] + 1, #Need to add one as we append the mask flag to each input target
                     self.args.embed_dim
                 )
                 if self.args.target_config[target_name]["type"]=="continuous"
-                else 
+                else
                 nn.Embedding(
                     self.args.target_config[target_name]["dim"] + 1, #Size of the dictionary of embeddings. Need to add 1 for the mask flag as well
                     self.args.embed_dim
@@ -95,7 +120,7 @@ class ProteinNPTModel(nn.Module):
                 for target_name in self.target_names_input
             }
         )
-        
+
         self.dropout_module = nn.Dropout(self.args.dropout)
 
         self.layers = nn.ModuleList(
@@ -117,7 +142,7 @@ class ProteinNPTModel(nn.Module):
             )
         self.emb_layer_norm_before = ESM1bLayerNorm(self.args.embed_dim)
         self.emb_layer_norm_after = ESM1bLayerNorm(self.args.embed_dim)
-        
+
         if self.args.aa_embeddings=="MSA_Transformer" or args.aa_embeddings.startswith("ESM"):
             weight = self.aa_embedding.embed_tokens.weight
         elif self.args.aa_embeddings == "Tranception":
@@ -130,10 +155,10 @@ class ProteinNPTModel(nn.Module):
             output_dim=self.alphabet_size,
             weight=weight
         )
-        
+
         target_pred_input_dim = self.args.embed_dim
 
-        if args.target_prediction_model=="MLP": 
+        if args.target_prediction_model=="MLP":
             self.layer_pre_head = nn.ModuleDict(
                 {
                     target_name:
@@ -141,11 +166,11 @@ class ProteinNPTModel(nn.Module):
                         nn.Linear(target_pred_input_dim, target_pred_input_dim),
                         nn.Dropout(self.args.dropout),
                         nn.ReLU()
-                        ) 
+                        )
                     for target_name in self.target_names
                 }
             )
-            
+
         if args.target_prediction_model=="ConvBERT":
             configuration = ConvBertConfig(
                 hidden_size = self.args.embed_dim,
@@ -156,14 +181,14 @@ class ProteinNPTModel(nn.Module):
                 attention_probs_dropout_prob = self.args.dropout
             )
             self.layer_pre_head = ConvBertLayer(configuration)
-        
+
         if args.target_prediction_model=="CNN":
             self.layer_pre_head = nn.Sequential(
                 nn.Conv1d(in_channels=target_pred_input_dim, out_channels=target_pred_input_dim, kernel_size = self.args.conv_kernel_size, padding='same'),
                 nn.Dropout(self.args.dropout),
                 nn.ReLU()
             )
-        
+
         if self.args.target_prediction_head == "Target_embeddings_only":
             target_pred_input_dim = target_pred_input_dim
         elif self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled":
@@ -171,7 +196,7 @@ class ProteinNPTModel(nn.Module):
 
         if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
             self.zero_shot_fitness_prediction_weight = nn.ModuleDict(
-                { 
+                {
                     target_name: nn.Linear(1, self.args.target_config[target_name]["dim"], bias=False)
                     for target_name in self.target_names
                 }
@@ -180,21 +205,44 @@ class ProteinNPTModel(nn.Module):
                 torch.nn.init.constant_(self.zero_shot_fitness_prediction_weight[target_name].weight,1e-4)
 
         self.target_pred_head = nn.ModuleDict(
-                { 
+                {
                     target_name: nn.Linear(target_pred_input_dim, self.args.target_config[target_name]["dim"])
                     for target_name in self.target_names
                 }
         )
-    
+
     def set_device(self):
+        """Sets the device for the model.
+
+        Automatically detects and sets the device (CPU/GPU) for the model
+        based on the device of its parameters.
+        """
         if self.device is None:
             self.device = next(self.parameters()).device
         print("Model device: {}".format(self.device))
-        
+
     def forward(self, tokens, targets=None, zero_shot_fitness_predictions=None, sequence_embeddings=None, repr_layers=[], need_head_weights=False):
-        padding_mask = tokens.eq(self.padding_idx) 
+        """Forward pass of the model.
+
+        Args:
+            tokens (torch.Tensor): Input protein sequence tokens
+            targets (dict, optional): Dictionary of target values to predict
+            zero_shot_fitness_predictions (torch.Tensor, optional): Pre-computed fitness predictions
+            sequence_embeddings (torch.Tensor, optional): Pre-computed sequence embeddings
+            repr_layers (list, optional): Layers to output representations from
+            need_head_weights (bool, optional): Whether to output attention weights
+
+        Returns:
+            dict: Dictionary containing:
+                - logits_protein_sequence: Predicted amino acid probabilities
+                - target_predictions: Predicted values for each target
+                - representations: Hidden representations from specified layers
+                - col_attentions: Column attention weights (if need_head_weights)
+                - row_attentions: Row attention weights (if need_head_weights)
+        """
+        padding_mask = tokens.eq(self.padding_idx)
         if not padding_mask.any(): padding_mask = None
-        
+
         if self.args.aa_embeddings == "MSA_Transformer" and self.args.sequence_embeddings_location is None: #If loading MSAT embeddings from disk, we have dropped one dim already
             assert tokens.ndim == 3, "Finding dimension of tokens to be: {}".format(tokens.ndim)
             num_MSAs_in_batch, num_sequences_in_alignments, seqlen = tokens.size() # N, B, L (seqs with labels, seqs in MSA, seq length)
@@ -202,7 +250,7 @@ class ProteinNPTModel(nn.Module):
         else:
             assert tokens.ndim == 2, "Finding dimension of tokens to be: {}".format(tokens.ndim)
             batch_size, seqlen = tokens.size() # N, L (seqs with labels, seq length)
-        
+
         if sequence_embeddings is not None:
             x = sequence_embeddings.to(self.device)
         else:
@@ -227,11 +275,11 @@ class ProteinNPTModel(nn.Module):
             else:
                 print("AA embeddings not recognized")
                 sys.exit(0)
-    
+
         if self.aa_embedding_dim != self.args.embed_dim: x = self.token_embedding_projection(x)
-        
+
         if self.args.target_prediction_head != "Target_embeddings_and_AA_embeddings_mean_pooled": #We mix AA embeddings pre NPT
-            if self.args.target_prediction_model == "CNN": 
+            if self.args.target_prediction_model == "CNN":
                 assert len(x.size())==3, "Size error input"
                 N, L, D = x.size()
                 x = x.permute(0,2,1) #N, D, L
@@ -241,7 +289,7 @@ class ProteinNPTModel(nn.Module):
                 x = self.layer_pre_head(x)[0]
 
         x = x.view(1, batch_size, seqlen, self.args.embed_dim) # 1, N, L, D
-        
+
         #Dimensions for each target (there are self.num_targets of them):
         y = []
         for target_name in self.target_names_input:
@@ -254,7 +302,7 @@ class ProteinNPTModel(nn.Module):
         y = torch.cat(y, dim=-2) #concatenate across second to last dimension # N, num_targets, D
         assert y.shape == (num_sequences_with_target, self.num_targets_input, self.args.embed_dim), "Error in y shape: {}".format(y.shape)
         y = y.view(1, num_sequences_with_target, self.num_targets_input, self.args.embed_dim) # 1, N, num_targets, D
-        
+
         #Concatenate AA tokens and targets
         x = torch.cat((x,y),dim=-2) # 1, N, (L+num_targets), D
         x = self.emb_layer_norm_before(x)
@@ -267,7 +315,7 @@ class ProteinNPTModel(nn.Module):
             padding_mask = padding_mask_with_targets
             x = x * (1 - padding_mask.unsqueeze(-1).type_as(x))
             padding_mask = padding_mask.bool()
-        
+
         repr_layers = set(repr_layers)
         hidden_representations = {}
         if 0 in repr_layers: hidden_representations[0] = x
@@ -294,18 +342,18 @@ class ProteinNPTModel(nn.Module):
         assert x.shape == (1, num_sequences_with_target, seqlen + self.num_targets_input, self.args.embed_dim), "Error with axial transformer"
         # last hidden representation should have layer norm applied
         if (layer_idx + 1) in repr_layers: hidden_representations[layer_idx + 1] = x
-        
+
         # Loss over NPT MLM objective
         if self.aa_embedding_dim != self.args.embed_dim:
             logits_protein_sequence = self.lm_head(self.token_embedding_expansion(x[...,:seqlen,:]))
         else:
             logits_protein_sequence = self.lm_head(x[...,:seqlen,:]) #Remove dependency on targets for final AA predictions. logits size: (1, N, L, Vocab)
-        
+
         x = x.view(num_sequences_with_target, seqlen + self.num_targets_input, self.args.embed_dim)
         x, y = x[:,:seqlen,:], x[:,seqlen:,:] # (N,L,D) and (N,num_targets,D)
         assert y.shape == (num_sequences_with_target, self.num_targets_input, self.args.embed_dim)
-        if self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled": 
-            if self.args.target_prediction_model == "CNN": 
+        if self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled":
+            if self.args.target_prediction_model == "CNN":
                 assert len(x.size())==3, "Size error input"
                 N, L, D = x.size()
                 x = x.permute(0,2,1) #N, D, L
@@ -316,19 +364,19 @@ class ProteinNPTModel(nn.Module):
             x = x.mean(dim=-2) # N, D
             y = y.view(num_sequences_with_target,self.num_targets_input * self.args.embed_dim)
             y = torch.cat((x,y),dim=-1) # N, (1+num_targets) * D
-        
+
         target_predictions = {}
         for target_index, target_name in enumerate(self.target_names):
-            if self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled": 
+            if self.args.target_prediction_head == "Target_embeddings_and_AA_embeddings_mean_pooled":
                 target_predictions[target_name] = self.target_pred_head[target_name](y).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1) #We use the concatenated X and target embeddings (all of them) to predict each target
             else:
                 if self.args.target_prediction_model == "MLP": y[:,target_index,:] = self.layer_pre_head[target_name](y[:,target_index,:])
                 target_predictions[target_name] = self.target_pred_head[target_name](y[:,target_index,:]).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1) #input the embedding with the relevant target_index
             if self.args.augmentation=="zero_shot_fitness_predictions_covariate":
                 target_predictions[target_name] += self.zero_shot_fitness_prediction_weight[target_name](zero_shot_fitness_predictions).view(-1,self.args.target_config[target_name]["dim"]).squeeze(dim=-1)
-            
+
         result = {"logits_protein_sequence": logits_protein_sequence, "target_predictions": target_predictions, "representations": hidden_representations}
-        
+
         if need_head_weights:
             col_attentions = torch.stack(col_attn_weights, 1)
             row_attentions = torch.stack(row_attn_weights, 1)
@@ -338,11 +386,25 @@ class ProteinNPTModel(nn.Module):
         return result
 
     def forward_with_uncertainty(self, tokens, targets, zero_shot_fitness_predictions=None, sequence_embeddings=None, num_MC_dropout_samples=10, number_of_mutated_seqs_to_score=None):
+        """Performs forward pass with uncertainty estimation using MC dropout.
+
+        Uses Monte Carlo dropout to generate multiple predictions and estimate uncertainty.
+        Keeps dropout active during inference to sample different network configurations.
+
+        Args:
+            tokens (torch.Tensor): Input protein sequence tokens
+            targets (dict): Dictionary of target values to predict
+            zero_shot_fitness_predictions (torch.Tensor, optional): Pre-computed fitness predictions
+            sequence_embeddings (torch.Tensor, optional): Pre-computed sequence embeddings
+            num_MC_dropout_samples (int, optional): Number of MC dropout samples. Defaults to 10
+            number_of_mutated_seqs_to_score (int, optional): Number of mutated sequences to evaluate
+
+        Returns:
+            dict: Dictionary containing for each target:
+                - predictions_avg: Mean prediction across MC samples
+                - uncertainty: Standard deviation across MC samples
         """
-        Performs MC dropout to compute predictions and the corresponding uncertainties.
-        Assumes 1D predictions (eg., prediction of continuous output)
-        """
-        self.eval() 
+        self.eval()
         for m in self.modules(): #Move all dropout layers in train mode to support MC dropout. Keep everything else in eval mode.
             if m.__class__.__name__.startswith('Dropout'):
                 m.train()
@@ -359,21 +421,45 @@ class ProteinNPTModel(nn.Module):
                 results_with_uncertainty[target_name]['predictions_avg'] = concatenated_target_pred.mean(dim=-1)
                 results_with_uncertainty[target_name]['uncertainty'] = concatenated_target_pred.std(dim=-1)
         return results_with_uncertainty
-    
+
     @property
     def num_layers(self):
+        """int: Number of transformer layers in the model."""
         return self.args.num_protein_npt_layers
-    
+
     def max_tokens_per_msa_(self, value: int) -> None:
-        """
-        Batching attention computations when gradients are disabled as per MSA_Transformer
-        Set this value to infinity to disable this behavior.
+        """Sets maximum tokens per MSA for attention computation batching.
+
+        Used to batch attention computations when gradients are disabled,
+        following MSA Transformer implementation. Set to infinity to disable batching.
+
+        Args:
+            value (int): Maximum number of tokens per MSA batch
         """
         for module in self.modules():
             if isinstance(module, (RowSelfAttention, ColumnSelfAttention)):
                 module.max_tokens_per_msa = value
 
     def protein_npt_loss(self, token_predictions_logits, token_labels, target_predictions, target_labels, MLM_reconstruction_loss_weight, label_smoothing=0.0):
+        """Calculates the total loss for model training.
+
+        Combines masked language modeling loss for sequence reconstruction and
+        prediction losses for each target property.
+
+        Args:
+            token_predictions_logits (torch.Tensor): Predicted token logits
+            token_labels (torch.Tensor): True token labels
+            target_predictions (dict): Dictionary of predicted target values
+            target_labels (dict): Dictionary of true target labels
+            MLM_reconstruction_loss_weight (float): Weight for MLM loss component
+            label_smoothing (float, optional): Label smoothing factor. Defaults to 0.0
+
+        Returns:
+            tuple:
+                - total_loss (torch.Tensor): Combined loss value
+                - reconstruction_loss (torch.Tensor): MLM loss component
+                - target_prediction_loss (dict): Loss values for each target
+        """
         target_prediction_loss_weight = 1.0 - MLM_reconstruction_loss_weight
         total_loss = 0.0
         if (token_labels is not None) and (MLM_reconstruction_loss_weight > 0.0):
@@ -397,16 +483,22 @@ class ProteinNPTModel(nn.Module):
                     print("Detected nan loss")
                     print(target_predictions[target_name])
                 target_prediction_loss[target_name] = tgt_loss
-                
+
                 total_loss += target_prediction_loss_weight * target_prediction_loss[target_name]
         return total_loss, reconstruction_loss, target_prediction_loss
 
     def create_optimizer(self):
-        """
-        Setup the optimizer.
-        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
-        Trainer's init through `optimizers`, or subclass and override this method in a subclass.
-        Adapted from Huggingface Transformers library.
+        """Creates and configures the model optimizer.
+
+        Sets up an AdamW optimizer with parameter-specific weight decay settings:
+        - Regular parameters: Use specified weight decay
+        - Pseudo-likelihood weights: Use very small weight decay (1e-8)
+        - Bias terms: No weight decay
+
+        The configuration is adapted from the Huggingface Transformers library.
+
+        Returns:
+            AdamW: Configured optimizer instance
         """
         if self.optimizer is None:
             all_parameters = get_parameter_names(self, [nn.LayerNorm])
@@ -425,7 +517,7 @@ class ProteinNPTModel(nn.Module):
                     "params": [p for n, p in self.named_parameters() if (n not in decay_parameters and n not in psl_decay_parameters)],
                     "weight_decay": 0.0,
                 },
-            ]        
+            ]
         optimizer_kwargs = {
             "betas": (self.args.adam_beta1, self.args.adam_beta2),
             "eps": self.args.adam_epsilon,
@@ -433,4 +525,3 @@ class ProteinNPTModel(nn.Module):
             }
         optimizer = AdamW(optimizer_grouped_parameters, **optimizer_kwargs)
         return optimizer
-    
