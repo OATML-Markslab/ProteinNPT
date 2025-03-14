@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-# from transformers import ConvBertConfig, ConvBertLayer
 
 from ..utils.esm.modules import (
     AxialTransformerLayer,
@@ -146,17 +145,6 @@ class ProteinNPTModel(nn.Module):
                 }
             )
             
-        if args.target_prediction_model=="ConvBERT":
-            configuration = ConvBertConfig(
-                hidden_size = self.args.embed_dim,
-                num_attention_heads = self.args.attention_heads,
-                conv_kernel_size = self.args.conv_kernel_size,
-                hidden_act = "gelu",
-                hidden_dropout_prob = self.args.dropout,
-                attention_probs_dropout_prob = self.args.dropout
-            )
-            self.layer_pre_head = ConvBertLayer(configuration)
-        
         if args.target_prediction_model=="CNN":
             self.layer_pre_head = nn.Sequential(
                 nn.Conv1d(in_channels=target_pred_input_dim, out_channels=target_pred_input_dim, kernel_size = self.args.conv_kernel_size, padding='same'),
@@ -237,9 +225,7 @@ class ProteinNPTModel(nn.Module):
                 x = x.permute(0,2,1) #N, D, L
                 x = self.layer_pre_head(x)
                 x = x.permute(0,2,1)
-            elif self.args.target_prediction_model == "ConvBERT":
-                x = self.layer_pre_head(x)[0]
-
+            
         x = x.view(1, batch_size, seqlen, self.args.embed_dim) # 1, N, L, D
         
         #Dimensions for each target (there are self.num_targets of them):
@@ -311,8 +297,6 @@ class ProteinNPTModel(nn.Module):
                 x = x.permute(0,2,1) #N, D, L
                 x = self.layer_pre_head(x)
                 x = x.permute(0,2,1)
-            elif self.args.target_prediction_model == "ConvBERT":
-                x = self.layer_pre_head(x)[0]
             x = x.mean(dim=-2) # N, D
             y = y.view(num_sequences_with_target,self.num_targets_input * self.args.embed_dim)
             y = torch.cat((x,y),dim=-1) # N, (1+num_targets) * D
