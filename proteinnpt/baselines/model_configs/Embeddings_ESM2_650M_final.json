@@ -1,0 +1,23 @@
+{
+    "model_type": "ESM2_650M_pred",
+    "model_name_suffix": "Embeddings_ESM2_650M_final",
+    "aa_embeddings": "ESM2_650M",
+    "embedding_model_location": "ESM/ESM2/esm2_t33_650M_UR50D.pt",
+    "augmentation": "zero_shot_fitness_predictions_covariate",
+    "embed_dim": 1280,
+    "max_positions": 1024,
+    "target_prediction_head": "AA_embeddings_mean_pooled",
+    "target_prediction_model": "CNN",
+    "conv_kernel_size": 7,
+    "weight_decay": 5e-2,
+    "dropout": 0.1,
+    "num_total_training_steps": 10000,
+    "num_logging_training_steps": 10,
+    "num_saving_training_steps": 20000,
+    "num_eval_steps": 100,
+    "num_warmup_steps": 100,
+    "gradient_accumulation": 1,
+    "training_num_assay_sequences_per_batch_per_gpu": 64,
+    "eval_num_sequences_to_score_per_batch_per_gpu": 64,
+    "seed": 2023
+}
