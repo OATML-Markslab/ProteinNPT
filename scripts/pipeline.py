@@ -2,11 +2,9 @@ import argparse
 import os
 import json
 import pandas as pd
-import warnings
 import subprocess
 
 from proteinnpt.utils import cv_split
-from proteinnpt.utils.tranception.utils.scoring_utils import get_mutated_sequence
 from proteinnpt.utils.msa_utils import MSA_processing
 from proteinnpt.utils.data_utils import cleanup_ids_assay_data
 from embeddings import main as run_embeddings
