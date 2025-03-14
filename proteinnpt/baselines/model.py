@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss, MSELoss
-# from transformers import ConvBertConfig, ConvBertLayer
 
 from ..utils.esm.modules import ESM1bLayerNorm
 from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
@@ -78,16 +77,6 @@ class AugmentedPropertyPredictor(nn.Module):
                         nn.Dropout(self.args.dropout),
                         nn.ReLU()
             )
-        # elif args.target_prediction_model=="ConvBERT":
-        #     configuration = ConvBertConfig(
-        #         hidden_size = self.args.embed_dim,
-        #         num_attention_heads = self.args.attention_heads if self.args.attention_heads is not None else 4,
-        #         conv_kernel_size = self.args.conv_kernel_size,
-        #         hidden_act = "gelu",
-        #         hidden_dropout_prob = self.args.dropout,
-        #         attention_probs_dropout_prob = self.args.dropout
-        #     )
-        #     self.layer_pre_head = ConvBertLayer(configuration)
         elif args.target_prediction_model=="CNN":
             self.layer_pre_head = nn.Sequential(
                 nn.Conv1d(in_channels=target_pred_input_dim, out_channels=target_pred_input_dim, kernel_size = self.args.conv_kernel_size, padding='same'),
@@ -188,8 +177,6 @@ class AugmentedPropertyPredictor(nn.Module):
             x = x.permute(0,2,1) #N, D, L
             x = self.layer_pre_head(x)
             x = x.permute(0,2,1)
-        elif self.args.target_prediction_model == "ConvBERT":
-            x = self.layer_pre_head(x)[0]
         elif self.args.target_prediction_model=="light_attention":
             x = x.permute(0,2,1) #N, D, L
             o = self.feature_convolution(x)  
