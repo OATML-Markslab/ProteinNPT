@@ -298,7 +298,7 @@ class Trainer():
                     train_logs["train_total_loss_per_step"]: log_train_total_loss / self.args.num_logging_training_steps
                     train_logs["train_reconstruction_loss_per_masked_token"] = log_train_reconstruction_loss.item() / log_train_num_masked_tokens
                     for target_name in self.model.target_names:
-                        train_logs["train_prediction_"+str(target_name)+"_loss_per_masked_token"] = log_train_target_prediction_loss_dict[target_name].item() / log_train_num_target_masked_tokens_dict[target_name]
+                        if log_train_num_target_masked_tokens_dict[target_name] > 0:  train_logs["train_prediction_"+str(target_name)+"_loss_per_masked_token"] = log_train_target_prediction_loss_dict[target_name].item() / log_train_num_target_masked_tokens_dict[target_name]
                 else:
                     train_logs["train_total_loss_per_seq"]: log_train_total_loss / log_num_sequences_predicted
                     for target_name in self.model.target_names:
