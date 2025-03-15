@@ -82,50 +82,39 @@ def cleanup_ids_assay_data(df, indel_mode=False, target_seq=None):
     return df
 
 def get_train_val_test_data(args, assay_file_names):
-    target_names = args.target_config.keys()
+    target_names = args.target_config.keys() 
     assay_data={}
     merge = None
     main_target_name = None
     main_target_name_count = 0
     for target in target_names:
-        if args.target_config[target]["main_target"]:
+        if args.target_config[target]["main_target"]: 
             main_target_name=target
             main_target_name_count+=1
     assert main_target_name is not None, "No main target referenced. Please update config to select a unique main target."
     assert main_target_name_count <= 1, "Several main targets referenced. Please update config to select a unique main target."
-
-    assay_data[main_target_name] = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_names[main_target_name])
+    
+    assay_data[main_target_name] = pd.read_csv(args.target_config[main_target_name]["location"] + os.sep + assay_file_names[main_target_name]) 
     assay_data[main_target_name] = cleanup_ids_assay_data(assay_data[main_target_name])[['mutant','mutated_sequence',args.target_config[main_target_name]["var_name"],args.fold_variable_name]]
     assay_data[main_target_name].columns = ['mutant','mutated_sequence', main_target_name, args.fold_variable_name]
     merge = assay_data[main_target_name]
-
-    # Get target sequence from mutated
-    wt_sequence = list(merge.loc[0, 'mutated_sequence'])
-    mut_0 = merge.loc[0, 'mutant']
-    for mutation in mut_0.split(':'):
-        wt, pos, mut = mutation[0], int(mutation[1:-1]), mutation[-1]
-        assert wt_sequence[pos-1] == mut
-        wt_sequence[pos-1] = wt
-    target_seq = ''.join(wt_sequence)
-
+    
     for target_name in target_names:
         if target_name!=main_target_name:
-            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name])
-            assay_data[target_name] = cleanup_ids_assay_data(assay_data[target_name], target_seq=target_seq)[['mutant',args.target_config[target_name]["var_name"]]]
-            assay_data[target_name].columns = ['mutant',target_name]
-            merge = pd.merge(merge, assay_data[target_name], how='outer', on='mutant')
-
+            assay_data[target_name] = pd.read_csv(args.target_config[target_name]["location"] + os.sep + assay_file_names[target_name]) 
+            assay_data[target_name] = cleanup_ids_assay_data(assay_data[target_name])[['mutated_sequence', args.target_config[target_name]["var_name"]]]
+            assay_data[target_name].columns = ['mutated_sequence', target_name]
+            merge = pd.merge(merge, assay_data[target_name], how='outer', on='mutated_sequence')
+            
     if args.augmentation=="zero_shot_fitness_predictions_covariate":
         zero_shot_fitness_predictions = pd.read_csv(args.zero_shot_fitness_predictions_location + os.sep + assay_file_names[main_target_name])
-        # Remove wt row if present
-        zero_shot_fitness_predictions = zero_shot_fitness_predictions[zero_shot_fitness_predictions["mutant"] != "wt"].reset_index(drop=True)
-        zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions, target_seq=target_seq)[['mutant',args.zero_shot_fitness_predictions_var_name]]
-        zero_shot_fitness_predictions.columns = ['mutant','zero_shot_fitness_predictions']
+        zero_shot_fitness_predictions = cleanup_ids_assay_data(zero_shot_fitness_predictions)[['mutated_sequence',args.zero_shot_fitness_predictions_var_name]]
+        zero_shot_fitness_predictions.columns = ['mutated_sequence','zero_shot_fitness_predictions']
         zero_shot_fitness_predictions['zero_shot_fitness_predictions'] = standardize(zero_shot_fitness_predictions['zero_shot_fitness_predictions'])
-        merge = pd.merge(merge,zero_shot_fitness_predictions,how='left',on='mutant')
+        merge = pd.merge(merge,zero_shot_fitness_predictions,how='left',on='mutated_sequence')
 
     train_val_test_splits = split_data_based_on_test_fold_index(
-        dataframe = merge,
+        dataframe = merge, 
         fold_variable_name = args.fold_variable_name,
         test_fold_index = args.test_fold_index,
         use_validation_set = args.use_validation_set
@@ -141,7 +130,7 @@ def get_train_val_test_data(args, assay_file_names):
             raw_targets, target_processing = preprocess_training_targets(raw_targets, args.target_config)
         else:
             raw_targets = preprocess_test_targets(raw_targets, args.target_config, target_processing)
-        for target_name in target_names:
+        for target_name in target_names: 
             splits_dict[split_name][target_name] = raw_targets[target_name]
         if args.augmentation=="zero_shot_fitness_predictions_covariate": splits_dict[split_name]['zero_shot_fitness_predictions'] = raw_targets['zero_shot_fitness_predictions']
     # load dict into dataset objects
