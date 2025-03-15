@@ -17,6 +17,7 @@ from ..utils.esm.axial_attention import RowSelfAttention, ColumnSelfAttention
 from ..utils.tranception.config import TranceptionConfig
 from ..utils.tranception.model_pytorch import TranceptionLMHeadModel
 from ..utils.model_utils import get_parameter_names
+from ..utils.embedding_utils import get_embeddings_MSA_Transformer, get_embeddings_ESM, get_embeddings_Tranception
 
 class ProteinNPTModel(nn.Module):
     """Neural Process Transformer model for protein sequence analysis.
@@ -243,21 +244,13 @@ class ProteinNPTModel(nn.Module):
         if sequence_embeddings is not None:
             x = sequence_embeddings.to(self.device)
         else:
+            processed_batch = {'input_ids': tokens, 'labels': tokens}
             if self.args.aa_embeddings == "MSA_Transformer":
-                output = self.aa_embedding(tokens, repr_layers=[12])
-                x = output["representations"][12][:] # N, B, L, D
-                x = x[:,0,:,:] # N, L, D. #In each MSA batch the first sequence is what we care about. The other MSA sequences were just to compute embeddings and logits
+                x, _, _ = get_embeddings_MSA_Transformer(self.aa_embedding, processed_batch, self.alphabet_size, return_pseudo_ll=False, fast_MSA_mode=False)
             elif self.args.aa_embeddings.startswith("ESM"):
-                if self.args.aa_embeddings=="ESM1v":
-                    last_layer_index = 33
-                elif self.args.aa_embeddings=="ESM2_15B":
-                    last_layer_index = 48
-                elif self.args.aa_embeddings=="ESM2_3B":
-                    last_layer_index = 36
-                elif self.args.aa_embeddings=="ESM2_650M":
-                    last_layer_index = 33
-                output = self.aa_embedding(tokens, repr_layers=[last_layer_index])
-                x = output["representations"][last_layer_index][:] # N, L, D
+                x, _ = get_embeddings_ESM(self.aa_embedding, self.model_type, processed_batch, self.alphabet_size, return_pseudo_ll=False)
+            elif self.args.aa_embeddings == "Tranception":
+                x, _ = get_embeddings_Tranception(self.aa_embedding, processed_batch, return_pseudo_ll=False)
             elif self.args.aa_embeddings =="Linear_embedding":
                 x = self.aa_embedding(tokens)
                 x = x + self.aa_positions_embedding(tokens.view(batch_size, seqlen)).view(x.size()) # Need position embedding in PNPT since we will apply axial attention
