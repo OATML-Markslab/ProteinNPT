@@ -1,7 +1,8 @@
 import os,sys
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
+from sklearn.metrics import r2_score
 import torch
 import h5py
 from datasets import Dataset
@@ -435,6 +436,47 @@ def pnpt_spearmanr(prediction, target):
     """
     mask_missing_values = np.isnan(target) | np.equal(target, -100) #In PNPT missing values are never masked so corresponding labels are always set to -100
     return spearmanr(prediction[~mask_missing_values], target[~mask_missing_values])[0] #first value is spearman rho, second is the corresponding p-value
+
+def pnpt_pearsonr(prediction,target):
+    """Calculates Pearson correlation while handling missing values.
+
+    Computes correlation between predictions and targets, excluding missing values
+    (NaN or -100) from the calculation.
+
+    Args:
+        prediction (numpy.ndarray): Predicted values
+        target (numpy.ndarray): True target values
+
+    Returns:
+        float: Spearman correlation coefficient
+    """
+    mask_missing_values = np.isnan(target) | np.equal(target, -100) #In PNPT missing values are never masked so corresponding labels are always set to -100
+    return pearsonr(prediction[~mask_missing_values], target[~mask_missing_values])[0] #first value is spearman rho, second is the corresponding p-value 
+
+def pnpt_R2(prediction,target):
+    """Calculates R2 while handling missing values.
+
+    R2 between predictions and targets, excluding missing values
+    (NaN or -100) from the calculation.
+
+    Args:
+        prediction (numpy.ndarray): Predicted values
+        target (numpy.ndarray): True target values
+
+    Returns:
+        float: Spearman correlation coefficient
+    """
+    mask_missing_values = np.isnan(target) | np.equal(target, -100) #In PNPT missing values are never masked so corresponding labels are always set to -100
+    valid_target = target[~mask_missing_values]
+    valid_prediction = prediction[~mask_missing_values]
+    
+    print(f"Number of valid samples: {len(valid_target)}")
+    print(f"Target mean: {np.mean(valid_target)}")
+    print(f"Prediction mean: {np.mean(valid_prediction)}")
+    print(f"Target std: {np.std(valid_target)}")
+    print(f"Prediction std: {np.std(valid_prediction)}")
+    
+    return r2_score(target[~mask_missing_values], prediction[~mask_missing_values]) #Order: first true values, second predicted
 
 def pnpt_count_non_nan(x):
     """Counts non-missing values in an array.
