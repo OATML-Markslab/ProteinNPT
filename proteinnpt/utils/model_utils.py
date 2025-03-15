@@ -202,7 +202,7 @@ class Trainer():
                     zero_shot_fitness_predictions = None
                 
                 if self.args.training_fp16:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         if self.model.model_type=="ProteinNPT":
                             output = self.model(
                                 tokens=processed_batch['masked_tokens'],
@@ -263,7 +263,7 @@ class Trainer():
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_norm_clip)
             # Taking optimizer update out of the inner loop to support gradient accumulation
             if self.args.training_fp16:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     scaler.step(optimizer)
                     scaler.update()
             else:
