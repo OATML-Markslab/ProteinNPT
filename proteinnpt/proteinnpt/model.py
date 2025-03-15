@@ -143,11 +143,11 @@ class ProteinNPTModel(nn.Module):
         self.emb_layer_norm_after = ESM1bLayerNorm(self.args.embed_dim)
 
         if self.args.aa_embeddings=="MSA_Transformer" or args.aa_embeddings.startswith("ESM"):
-            weight = self.aa_embedding.embed_tokens.weight
+            weight = self.aa_embedding.embed_tokens.weight.clone()
         elif self.args.aa_embeddings == "Tranception":
-            weight = self.aa_embedding.lm_head.weight
+            weight = self.aa_embedding.lm_head.weight.clone()
         else:
-            weight = self.aa_embedding.weight
+            weight = self.aa_embedding.embed_tokens.weight.clone()
 
         self.lm_head = RobertaLMHead(
             embed_dim=self.aa_embedding_dim,
@@ -208,6 +208,7 @@ class ProteinNPTModel(nn.Module):
         if self.device is None:
             self.device = next(self.parameters()).device
         print("Model device: {}".format(self.device))
+        self.lm_head.weight = self.lm_head.weight.to(self.device)
 
     def forward(self, tokens, targets=None, zero_shot_fitness_predictions=None, sequence_embeddings=None, repr_layers=[], need_head_weights=False):
         """Forward pass of the model.
