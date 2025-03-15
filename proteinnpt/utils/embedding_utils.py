@@ -44,9 +44,7 @@ def get_Tranception_dataloader(df, batch_size, model, target_seq, indel_mode, sl
         sliced_df["sliced_mutated_sequence"] = df["mutated_sequence"]
     mutant_index=0
     ds = Dataset.from_pandas(sliced_df)
-    seq_len = len(sliced_df["sliced_mutated_sequence"][0])
-    encode_fn_seq_len = partial(model.encode_batch, max_length=seq_len)
-    ds.set_transform(encode_fn_seq_len) #model.encode_batch)
+    ds.set_transform(model.encode_batch)
     data_collator = DataCollatorForLanguageModeling(
                         tokenizer=model.config.tokenizer,
                         mlm=False)
