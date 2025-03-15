@@ -27,7 +27,7 @@ def parse_arguments():
     parser.add_argument('--model_location', default=None, type=str, help='Location of model used to embed protein sequences')
     parser.add_argument('--max_positions', default=1024, type=int, help='Maximum context length of embedding model')
     parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]')
-    parser.add_argument('--batch_size', default=32, type=int, help='Eval batch size')
+    parser.add_argument('--batch_size', default=1, type=int, help='Eval batch size')
     parser.add_argument('--indel_mode', action='store_true', help='Use this mode if extracting embeddings of indel assays')
     parser.add_argument('--half_precision', action='store_true', help='Store embeddings as 16-bit floating point numbers (float16)')
     #MSA-specific parameters (only relevant for MSA Transformer)
@@ -77,6 +77,21 @@ def preprocess_gaps_in_sequences(df, mode="drop_gaps", MSA_sequences=None):
             MSA_sequences = MSA_sequences_with_dashes
         return df, MSA_sequences
 
+def standardize_embeddings_length(embeddings, target_length, pad_value=0):
+    """Pad or trim embeddings to a target length"""
+    batch_size, seq_len, emb_dim = embeddings.shape
+    
+    if seq_len < target_length:
+        # Pad
+        padding = torch.ones(batch_size, target_length - seq_len, emb_dim) * pad_value
+        padded_embeddings = torch.cat([embeddings, padding.to(embeddings.device)], dim=1)
+        return padded_embeddings
+    elif seq_len > target_length:
+        # Trim
+        return embeddings[:, :target_length, :]
+    else:
+        return embeddings
+
 def main(
     assay_reference_file_location=None,
     assay_index=0,
@@ -86,7 +101,7 @@ def main(
     model_location=None,
     max_positions=1024,
     long_sequences_slicing_method='center',
-    batch_size=32,
+    batch_size=1,
     indel_mode=False,
     half_precision=False,
     num_MSA_sequences=1000,
@@ -109,7 +124,6 @@ def main(
         exit(1)
     elif use_cpu and torch.cuda.is_available():
         print("Note: CUDA is available, but will not be used because --use_cpu is specified. To use the GPU, remove the --use_cpu flag.")
-    
     assert (indel_mode and not fast_MSA_mode and batch_size==1) or (fast_MSA_mode and model_type=="MSA_Transformer") or (not indel_mode), "Indel mode typically run with batch size of 1, unless when using fast_MSA_mode for MSA Transformer"
 
     # Path to the input CSV file

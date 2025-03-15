@@ -1,4 +1,5 @@
 import os,gc
+import sys
 import json
 import argparse
 import random
@@ -13,7 +14,7 @@ from proteinnpt.proteinnpt.model import ProteinNPTModel
 from proteinnpt.baselines.model import AugmentedPropertyPredictor
 from proteinnpt.utils.esm.data import Alphabet
 from proteinnpt.utils.tranception.model_pytorch import get_tranception_tokenizer
-from proteinnpt.utils.data_utils import get_train_val_test_data, standardize, pnpt_count_non_nan, pnpt_spearmanr
+from proteinnpt.utils.data_utils import get_train_val_test_data, standardize, pnpt_count_non_nan, pnpt_spearmanr, pnpt_pearsonr, pnpt_R2
 from proteinnpt.utils.msa_utils import process_MSA
 from proteinnpt.utils.model_utils import Trainer
 
@@ -84,8 +85,8 @@ def setup_config_and_paths(args):
                     args.target_config[target]["location"] = args.assay_data_folder[0]
                     print("Location used for target {} is: {}".format(target,args.assay_data_folder[0]))
             else:
-                print("Assay location not provided. Defaulting to location for single substitutions fitness assays: {}".format(args.data_location + os.sep + 'data/fitness/substitutions_singles'))
-                args.target_config[target]["location"] = args.data_location + os.sep + 'data/fitness/substitutions_singles'
+                print("Assay location not provided. Exiting")
+                sys.exit(0)
     
     return args
 
@@ -97,30 +98,40 @@ def log_performance_fold(args,target_names,test_eval_results,trainer_final_statu
         if not os.path.exists(logs_folder): os.mkdir(logs_folder)
     test_logs['Test total loss per seq.'] = test_eval_results['eval_total_loss']
     spearmans = {}
+    pearsons = {}
+    R2_scores = {}
     num_obs_spearmans = {}
     for target_name in target_names:
         if args.target_config[target_name]["dim"]==1:
             spearmans[target_name] = pnpt_spearmanr(test_eval_results['output_scores']['predictions_'+target_name], test_eval_results['output_scores']['labels_'+target_name])
+            pearsons[target_name] = pnpt_pearsonr(test_eval_results['output_scores']['predictions_'+target_name], test_eval_results['output_scores']['labels_'+target_name])
+            R2_scores[target_name] = pnpt_R2(test_eval_results['output_scores']['predictions_'+target_name], test_eval_results['output_scores']['labels_'+target_name])
         else:
             # In the categorical setting, we predict the spearman between the logits of the category with highest index, and target value indices. This is meaningul in the binary setting. Use with care if 3 categories or more.
             spearmans[target_name] = pnpt_spearmanr(test_eval_results['output_scores']['predictions_'+target_name].apply(lambda x: x[-1]), test_eval_results['output_scores']['labels_'+target_name])
+            pearsons[target_name] = pnpt_pearsonr(test_eval_results['output_scores']['predictions_'+target_name].apply(lambda x: x[-1]), test_eval_results['output_scores']['labels_'+target_name])
+            R2_scores[target_name] = pnpt_R2(test_eval_results['output_scores']['predictions_'+target_name].apply(lambda x: x[-1]), test_eval_results['output_scores']['labels_'+target_name])
+        
         num_obs_spearmans[target_name] = pnpt_count_non_nan(test_eval_results['output_scores']['labels_'+target_name])
         print("Spearman {} target: {}".format(target_name,spearmans[target_name]))
         test_logs['Test Spearman '+target_name] = spearmans[target_name]
+        test_logs['Test Pearson '+target_name] = pearsons[target_name]
+        test_logs['Test R2 '+target_name] = R2_scores[target_name]
         test_logs['Test loss '+str(target_name)+' per seq.'] = test_eval_results['eval_target_prediction_loss_dict'][target_name]
     with open(logs_folder+os.sep+"test_performance_by_fold_"+args.model_name_suffix+".csv", "a") as perf_tracker:
         if os.path.getsize(logs_folder+os.sep+"test_performance_by_fold_"+args.model_name_suffix+".csv") == 0: 
             header="fold_index,model_type,model_name_suffix,targets,assay_id,UniProt_id,fold_variable_name,total_training_steps,total_training_epochs,aa_embeddings,target_prediction_model,target_prediction_head,augmentation,frozen_embedding_parameters,dropout,weight_decay,early_stopping_patience,use_validation_set,training_num_assay_sequences_per_batch_per_gpu,eval_num_sequences_to_score_per_batch_per_gpu,eval_num_training_sequences_per_batch_per_gpu,eval_training_sequences_sampling_method,num_MSA_sequences_per_training_instance,embed_dim,ffn_embed_dim,attention_heads,conv_kernel_size,num_protein_npt_layers,total_loss"
-            for target_name in target_names: header += (",loss_" + target_name + ",Spearman_" + target_name + ",num_obs_Spearman_" + target_name)
+            for target_name in target_names: header += (",loss_" + target_name + ",Spearman_" + target_name + ",Pearson_" + target_name + ",R2_" + target_name + ",num_obs_Spearman_" + target_name)
             perf_tracker.write(header+"\n")
         perf = ",".join([str(x) for x in perf_list]) + "," + str(round(test_logs['Test total loss per seq.'],5)) 
-        for target_name in target_names: perf += ("," + str(round(test_logs['Test loss '+str(target_name)+' per seq.'],5)) +","+str(spearmans[target_name])+","+str(num_obs_spearmans[target_name]))
+        for target_name in target_names: perf += ("," + str(round(test_logs['Test loss '+str(target_name)+' per seq.'],5)) +","+str(spearmans[target_name])+","+str(pearsons[target_name])+","+str(R2_scores[target_name])+","+str(num_obs_spearmans[target_name]))
         perf_tracker.write(perf+"\n")
-    return test_logs, spearmans
+    return test_logs, spearmans, pearsons, R2_scores
 
-def log_performance_all_folds(args,target_names,all_test_predictions_across_folds,spearmans_across_folds,perf_list,logs_folder=None):
+def log_performance_all_folds(args,target_names,all_test_predictions_across_folds,spearmans_across_folds,pearsons_across_folds,R2_scores_across_folds,perf_list,logs_folder=None):
     if not os.path.exists(args.output_scores_location + os.sep + 'all_aggregated_predictions'): os.mkdir(args.output_scores_location + os.sep + 'all_aggregated_predictions')
-    all_test_predictions_across_folds = pd.DataFrame.from_dict(all_test_predictions_across_folds)
+    if not isinstance(all_test_predictions_across_folds, pd.DataFrame):
+        all_test_predictions_across_folds = pd.DataFrame.from_dict(all_test_predictions_across_folds)
     all_test_predictions_across_folds.to_csv(args.output_scores_location + os.sep + 'all_aggregated_predictions' + os.sep + model_name_prefix + ".csv", index=False)
     if logs_folder is None:
         dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -129,25 +140,31 @@ def log_performance_all_folds(args,target_names,all_test_predictions_across_fold
     with open(logs_folder+os.sep+"test_performance_overall_"+perf_list[2]+".csv", "a") as overall_perf:
         if os.path.getsize(logs_folder+os.sep+"test_performance_overall_"+perf_list[2]+".csv") == 0: 
             header = "model_type,model_name_suffix,targets,assay_id,UniProt_id,fold_variable_name,total_training_steps,total_training_epochs,aa_embeddings,target_prediction_model,target_prediction_head,augmentation,frozen_embedding_parameters,dropout,weight_decay,early_stopping_patience,use_validation_set,training_num_assay_sequences_per_batch_per_gpu,eval_num_sequences_to_score_per_batch_per_gpu,eval_num_training_sequences_per_batch_per_gpu,eval_training_sequences_sampling_method,num_MSA_sequences_per_training_instance,embed_dim,ffn_embed_dim,attention_heads,conv_kernel_size,num_protein_npt_layers,total_loss"
-            for target_name in target_names: header += (",loss_" + target_name + ",Spearman_" + target_name + ",Std_dev_Spearman_" + target_name + ",num_obs_Spearman_" + target_name + ",standardized_loss_" + target_name + ",standardized_Spearman_" + target_name)
+            for target_name in target_names: 
+                header += (",loss_" + target_name + ",overall_Spearman_" + target_name + ",mean_Spearman_" + target_name + ",std_dev_Spearman_" + target_name + ",overall_Pearson_" + target_name + ",mean_Pearson_" + target_name + ",std_dev_Pearson_" + target_name + ",overall_R2_" + target_name + ",mean_R2_" + target_name + ",std_dev_R2_" + target_name + ",num_obs_" + target_name)
             overall_perf.write(header+"\n")
         perf = ",".join([str(x) for x in perf_list[1:]]) #Remove fold_index from perf_list
         for target_name in target_names:
             missing_mask = np.isnan(all_test_predictions_across_folds['labels_'+target_name]) | np.equal(all_test_predictions_across_folds['labels_'+target_name],-100)
             if args.target_config[target_name]["type"]=="continuous":
                 loss = ((all_test_predictions_across_folds['predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
-                loss_standardized = ((all_test_predictions_across_folds['fold_standardized_predictions_'+target_name][~missing_mask] - all_test_predictions_across_folds['labels_'+target_name][~missing_mask])**2).mean()
                 spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
-                spearman_standardized = pnpt_spearmanr(all_test_predictions_across_folds['fold_standardized_predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
+                pearson = pnpt_pearsonr(all_test_predictions_across_folds['predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
+                R2_score = pnpt_R2(all_test_predictions_across_folds['predictions_'+target_name], all_test_predictions_across_folds['labels_'+target_name])
             else:
                 predictions_np = np.array([np.array(pred, dtype=np.float32) for pred in all_test_predictions_across_folds['predictions_'+target_name][~missing_mask]])
                 loss = CrossEntropyLoss(reduction="mean")(torch.tensor(predictions_np).view(-1, args.target_config[target_name]["dim"]), torch.tensor(all_test_predictions_across_folds['labels_'+target_name][~missing_mask]).view(-1).long()).item()
-                loss_standardized = None
                 spearman = pnpt_spearmanr(all_test_predictions_across_folds['predictions_'+target_name].apply(lambda x: x[-1]), all_test_predictions_across_folds['labels_'+target_name])
-                spearman_standardized = None
+                pearson = pnpt_pearsonr(all_test_predictions_across_folds['predictions_'+target_name].apply(lambda x: x[-1]), all_test_predictions_across_folds['labels_'+target_name])
+                R2_score = pnpt_R2(all_test_predictions_across_folds['predictions_'+target_name].apply(lambda x: x[-1]), all_test_predictions_across_folds['labels_'+target_name])
             num_obs_spearman = pnpt_count_non_nan(all_test_predictions_across_folds['labels_'+target_name])
-            spearman_std_dev = np.array(spearmans_across_folds[target_name]).std()
-            perf += ("," + str(loss) +","+str(spearman) + ","+ str(spearman_std_dev) + "," + str(num_obs_spearman) + "," + str(loss_standardized) +","+str(spearman_standardized))
+            spearman_mean_across_folds = np.array(spearmans_across_folds[target_name]).mean() if spearmans_across_folds else None
+            spearman_std_dev = np.array(spearmans_across_folds[target_name]).std() if spearmans_across_folds else None
+            pearsons_mean_across_folds = np.array(pearsons_across_folds[target_name]).mean() if pearsons_across_folds else None
+            pearsons_std_dev = np.array(pearsons_across_folds[target_name]).std() if pearsons_across_folds else None
+            R2_scores_mean_across_folds = np.array(R2_scores_across_folds[target_name]).mean() if R2_scores_across_folds else None
+            R2_scores_std_dev = np.array(R2_scores_across_folds[target_name]).std() if R2_scores_across_folds else None
+            perf += ("," + str(loss) +","+str(spearman) +","+str(spearman_mean_across_folds) + ","+ str(spearman_std_dev) +","+str(pearson) +","+str(pearsons_mean_across_folds) + ","+ str(pearsons_std_dev) + ","+ str(R2_score) +"," +str(R2_scores_mean_across_folds) + "," + str(R2_scores_std_dev) + "," + str(num_obs_spearman))
         overall_perf.write(perf+"\n")
 
 def main(args):
@@ -189,21 +206,22 @@ def main(args):
                     args.early_stopping_patience, args.use_validation_set, args.training_num_assay_sequences_per_batch_per_gpu, args.eval_num_sequences_to_score_per_batch_per_gpu, args.eval_num_training_sequences_per_batch_per_gpu, \
                     args.eval_training_sequences_sampling_method, args.num_MSA_sequences_per_training_instance, args.embed_dim, args.ffn_embed_dim, args.attention_heads, args.conv_kernel_size, args.num_protein_npt_layers]
     model_hypers_str = ','.join([str(x) for x in model_hypers])
-    model_name_prefix = '_'.join([str(x) for x in [args.model_type,assay_id,"_".join(target_names_input),args.fold_variable_name,'embed_'+args.aa_embeddings,'head_'+str(args.target_prediction_model),'aug_'+str(args.augmentation_short), \
+    target_names_in_prefix = "_".join(target_names_input) if len(target_names_input) <=4 else "extended_target_set"
+    model_name_prefix = '_'.join([str(x) for x in [args.model_type,assay_id,target_names_in_prefix,args.fold_variable_name,'embed_'+args.aa_embeddings,'head_'+str(args.target_prediction_model),'aug_'+str(args.augmentation_short), \
                                     'froz_'+str(args.frozen_embedding_parameters),'drop_'+str(args.dropout),'val_'+str(args.use_validation_set),args.model_name_suffix]])
     model_name = model_name_prefix + "_fold-" + str(args.test_fold_index)
     if not os.path.exists(args.model_location+os.sep+model_name): os.mkdir(args.model_location+os.sep+model_name)
     with open(args.model_location+os.sep+model_name+os.sep+'training_arguments', 'w') as f:
         json.dump(args.__dict__, f, indent=2)
     print("Model name: "+model_name)
-    args.sequence_embeddings_location = args.sequence_embeddings_folder + os.sep + assay_file_name.split(".csv")[0] + '.h5' if args.sequence_embeddings_folder else None
+    args.sequence_embeddings_location = [embedding_folder + os.sep + assay_file_name.split(".csv")[0] + '.h5' for embedding_folder in args.sequence_embeddings_folder] if args.sequence_embeddings_folder else None
     print("Sequence embeddings: {}".format(args.sequence_embeddings_location))
     
     if args.use_wandb: wandb.login()   
     
     # Create & initiate model   
     if args.aa_embeddings=="Tranception":
-        alphabet = get_tranception_tokenizer() if args.aa_embeddings=="Tranception" else Alphabet.from_architecture("msa_transformer")
+        alphabet = get_tranception_tokenizer()
     elif args.aa_embeddings=="MSA_Transformer":
         alphabet = Alphabet.from_architecture("msa_transformer")
     else:
@@ -211,9 +229,9 @@ def main(args):
     
     if args.model_type=="ProteinNPT":
         model = ProteinNPTModel(args, alphabet)
-    elif args.model_type in ["MSA_Transformer_pred", "ESM1v_pred", "Tranception_pred", "TranceptEVE_pred", "Linear_Embedding_pred", "DeepSequence_pred"] or args.model_type.startswith("ESM2"):
+    elif args.model_type.endswith("_pred"):
         model = AugmentedPropertyPredictor(args, alphabet)
-    if args.frozen_embedding_parameters and args.aa_embeddings in ["MSA_Transformer", "ESM1v", "Tranception"]:
+    if args.frozen_embedding_parameters and (args.aa_embeddings in ["MSA_Transformer", "Tranception", "ProteinMPNN"] or args.aa_embeddings.startswith("ESM")):
         for para in model.aa_embedding.parameters():
             para.requires_grad = False
 
@@ -231,7 +249,7 @@ def main(args):
             if target=="zero_shot_fitness_predictions":
                 assay_file_names[target] = assay_file_name # The name of the zero-shot prediction file matches that of the main assay
             elif args.assay_reference_file_location is None: #Not using reference file
-                print("If not using a reference file and predicting several targets simultaneously, we assume the different targets are all present in the same assay file")
+                #If not using a reference file and predicting several targets simultaneously, we assume the different targets are all present in the same assay file
                 assay_file_names[target] = assay_file_name
             else:
                 assay_file_names[target] = assay_reference_file[assay_reference_file["DMS_id"]==assay_id]['DMS_filename'].values[0]
@@ -250,7 +268,7 @@ def main(args):
         MSA_start_position = args.MSA_start
         MSA_end_position = args.MSA_end
     train_data, val_data, test_data, target_processing = get_train_val_test_data(args = args, assay_file_names = assay_file_names)
-    if args.aa_embeddings == "MSA_Transformer":
+    if args.aa_embeddings == "MSA_Transformer" and args.sequence_embeddings_folder is None:
         MSA_sequences, MSA_weights = process_MSA(
             MSA_data_folder=args.MSA_data_folder,
             MSA_weight_data_folder=args.MSA_weight_data_folder,
@@ -316,7 +334,7 @@ def main(args):
     
     # Log performance (by default, this will create an "output" directory in the parent dir where logs will be stored. Adjust logs_folder as needed)
     perf_list = [args.test_fold_index,args.model_type,args.model_name_suffix,"_".join(target_names_input),assay_id,UniProt_id,args.fold_variable_name,trainer_final_status['total_training_steps'],trainer_final_status['total_training_epochs'],model_hypers_str]
-    test_logs, spearmans = log_performance_fold(args,target_names,test_eval_results,trainer_final_status,perf_list,logs_folder=None)
+    test_logs, spearmans, pearsons, R2_scores = log_performance_fold(args,target_names,test_eval_results,trainer_final_status,perf_list,logs_folder=args.output_results_location)
     perf_list.append(test_logs['Test total loss per seq.'])
     test_eval_results['output_scores'].to_csv(args.output_scores_location + os.sep + model_name + '.csv', index=False) # Store fold predictions
     if args.use_wandb: 
@@ -341,12 +359,13 @@ def main(args):
     gc.collect()
     torch.cuda.empty_cache()
 
-    return test_eval_results['output_scores'], perf_list, model_name_prefix, spearmans
+    return test_eval_results['output_scores'], perf_list, model_name_prefix, spearmans, pearsons, R2_scores
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train ProteinNPT or baseline model')
     parser.add_argument('--data_location', default=None, type=str, help='Path to core ProteinNPT datasets (e.g., MSA files, DMS assays, pretrained model checkpoints). Training output will also be stored there (i.e., checkpoints and test set predictions).')
     parser.add_argument('--model_config_location', default=None, type=str, help='Path to main model config file that specifies all parameters as needed')
+    parser.add_argument('--output_results_location', default="./", type=str, help='Path to folder where to store performance results')
     #Data parameters
     parser.add_argument('--assay_reference_file_location', default=None, type=str, help='Path to reference file with list of assays to score')
     parser.add_argument('--assay_index', default=None, type=int, help='Index of main assay to train on/predict for in the ProteinGym reference file')
@@ -362,10 +381,11 @@ if __name__ == "__main__":
     parser.add_argument('--MSA_data_folder', default=None, type=str, help='Folder all MSAs are stored for reference sequence of ProteinGym assays')
     parser.add_argument('--MSA_weight_data_folder', default=None, type=str, help='Folder where MSA sequence weights are stored (for diversity sampling of MSA)')
     parser.add_argument('--path_to_hhfilter', default=None, type=str, help='Path to hhfilter (for filtering MSA)')
+    parser.add_argument('--clustalomega_path', default=None, type=str, help='Path to clustalo')
     #Model parameters
     parser.add_argument('--model_type', default=None, type=str, help='Model type')
     parser.add_argument('--model_name_suffix', default=None, type=str, help='Suffix to reference model')
-    parser.add_argument('--sequence_embeddings_folder', required=True, type=str, help='Location of stored embeddings on disk')
+    parser.add_argument('--sequence_embeddings_folder', type=str, nargs='*', help='Location of stored embeddings on disk')
     parser.add_argument('--embedding_model_location', default=None, type=str, help='Location of model used to embed protein sequences')
     parser.add_argument('--aa_embeddings', default=None, type=str, help='Type of protein sequence embedding [MSA_Transformer|Tranception|ESM1v|ESM2|Linear_embedding]')
     parser.add_argument('--long_sequences_slicing_method', default='center', type=str, help='Method to slice long sequences [rolling, center, left]. We do not slice OHE input')
@@ -395,7 +415,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_num_training_sequences_per_batch_per_gpu', default=None, type=int, help='Number of sequences from training (with label) at inference time [ProteinNPT only]')
     parser.add_argument('--eval_training_sequences_sampling_method', default=None, type=str, help='How to sample training points (with label) at inference time [ProteinNPT only]')
     parser.add_argument('--indel_mode', action='store_true', help='indel mode')
-    parser.add_argument('--seed', default=None, type=int, help='Random seed used during training')
+    parser.add_argument('--seed', default=2025, type=int, help='Random seed used during training')
     parser.add_argument('--num_MSA_sequences_per_training_instance', default=None, type=int, help='Number of MSA sequences to be leveraged during training')
     parser.add_argument('--num_MSA_sequences_per_eval_instance', default=None, type=int, help='Number of MSA sequences to be leveraged at evaluation time')
     parser.add_argument('--max_tokens_per_msa', default=2**14, type=int, help='Used during inference to batch attention computations in a single forward pass. This allows increased input sizes with less memory.')
@@ -446,15 +466,19 @@ if __name__ == "__main__":
         all_test_predictions_by_fold = {}
         all_test_predictions_across_folds = defaultdict(list)
         spearmans_across_folds = defaultdict(list)
+        pearsons_across_folds = defaultdict(list)
+        R2_scores_across_folds = defaultdict(list)
         for fold_index in all_folds:
             args.test_fold_index=fold_index
-            all_test_predictions_by_fold[fold_index], perf_list, model_name_prefix, spearmans = main(args)
+            all_test_predictions_by_fold[fold_index], perf_list, model_name_prefix, spearmans, pearsons, R2_scores = main(args)
             all_test_predictions_across_folds['mutated_sequence'] += list(all_test_predictions_by_fold[fold_index]['mutated_sequence'])
             for target_name in target_names:
                 if args.target_config[target_name]["dim"]==1: all_test_predictions_across_folds['fold_standardized_predictions_'+target_name] += list(standardize(all_test_predictions_by_fold[fold_index]['predictions_'+target_name]))
                 all_test_predictions_across_folds['predictions_'+target_name] += list(all_test_predictions_by_fold[fold_index]['predictions_'+target_name])
                 all_test_predictions_across_folds['labels_'+target_name] += list(all_test_predictions_by_fold[fold_index]['labels_'+target_name])
                 spearmans_across_folds[target_name].append(spearmans[target_name])
-        log_performance_all_folds(args,target_names,all_test_predictions_across_folds,spearmans_across_folds,perf_list)
+                pearsons_across_folds[target_name].append(pearsons[target_name])
+                R2_scores_across_folds[target_name].append(R2_scores[target_name])
+        log_performance_all_folds(args,target_names,all_test_predictions_across_folds,spearmans_across_folds,pearsons_across_folds,R2_scores_across_folds,perf_list,args.output_results_location)
     else:
         main(args)
