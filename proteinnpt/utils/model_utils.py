@@ -503,11 +503,9 @@ class Trainer():
                     row_attentions.append(output["row_attentions"])
 
             output_scores = pd.DataFrame.from_dict(output_scores)
+            assert len(output_scores)==output_scores['mutant'].nunique()
             output_scores_numeric_cols = [col_name for col_name in output_scores.columns if col_name not in ['mutated_sequence']]
             output_scores = output_scores[output_scores_numeric_cols]
-            output_scores = output_scores.drop_duplicates()
-            output_scores = output_scores.groupby("mutant", as_index=False).mean(numeric_only=True).reset_index(drop=True)
-            assert len(output_scores)==output_scores['mutant'].nunique()
             mutated_seqs_dict = {}
             mutant_mutated_seqs = list(zip(*test_data['mutant_mutated_seq_pairs']))
             mutated_seqs_dict['mutant'] = mutant_mutated_seqs[0]
@@ -518,7 +516,10 @@ class Trainer():
         # Normalization
         for target_name in self.model.target_names:
             if self.model.model_type=="ProteinNPT":
-                eval_target_prediction_loss_dict[target_name] /= eval_num_masked_targets[target_name] # We track exactly how many targets were masked across batches to account for potential discrepancies across batches (eg., last abtch may not have the same number of labels)
+                if eval_num_masked_targets[target_name] > 0:
+                    eval_target_prediction_loss_dict[target_name] /= eval_num_masked_targets[target_name] # We track exactly how many targets were masked across batches to account for potential discrepancies across batches (eg., last batch may not have the same number of labels)
+                else:
+                    eval_target_prediction_loss_dict[target_name] = 0
             else:
                 eval_target_prediction_loss_dict[target_name] /= num_predicted_targets
         eval_results = {
