@@ -241,7 +241,7 @@ def mask_protein_sequences(inputs, alphabet, proba_aa_mask=0.15, proba_random_mu
     if proba_random_mutation > 0:
         rescaled_proba = proba_random_mutation / (proba_random_mutation + proba_unchanged)
         indices_random = torch.bernoulli(torch.full(labels.shape, rescaled_proba)).bool() & masked_indices & ~indices_replaced
-        esm_alphabet = True if '<cls>' in alphabet.all_special_tokens else False
+        esm_alphabet = True if '<mask>' in alphabet.all_special_tokens else False
         low, high = (4,29) if esm_alphabet else (5,24)
         random_tokens = torch.randint(low=low, high=high, size=labels.shape, dtype=torch.long) #we ensure we dont replace by a special token. high in torch.randint is exclusive.
         inputs[indices_random] = random_tokens[indices_random]
