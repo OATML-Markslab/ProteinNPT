@@ -896,15 +896,16 @@ class TranceptionLMHeadModel(GPT2PreTrainedModel):
             all_scores = pd.concat([all_scores,wt_row], ignore_index=True)
         return all_scores
 
-    def encode_batch(self, protein_sequence, sequence_name="sliced_mutated_sequence"):
+    def encode_batch(self, protein_sequence, sequence_name="sliced_mutated_sequence", max_length=None):
         """
         Method to process an input AA sequence batch (protein_sequence) and return a tokenized sequence (via the tokenizer associated to the model).
         """
+        if max_length is None: max_length = self.config.n_ctx
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='X', char_replacements='ACDEFGHIKLMNPQRSTVWY')
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='B', char_replacements='DN')
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='J', char_replacements='IL')
         protein_sequence[sequence_name] = scoring_utils.sequence_replace(sequences=protein_sequence[sequence_name], char_to_replace='Z', char_replacements='EQ')
-        return self.config.tokenizer(list(protein_sequence[sequence_name]), add_special_tokens=True, truncation=True, padding=True, max_length=self.config.n_ctx)
+        return self.config.tokenizer(list(protein_sequence[sequence_name]), add_special_tokens=True, truncation=True, padding=True, max_length=max_length)
 
 def get_tranception_tokenizer(tokenizer_path=None):
     #Tranception Alphabet: "vocab":{"[UNK]":0,"[CLS]":1,"[SEP]":2,"[PAD]":3,"[MASK]":4,"A":5,"C":6,"D":7,"E":8,"F":9,"G":10,"H":11,"I":12,"K":13,"L":14,"M":15,"N":16,"P":17,"Q":18,"R":19,"S":20,"T":21,"V":22,"W":23,"Y":24}
