@@ -244,7 +244,7 @@ class ProteinNPTModel(nn.Module):
         if sequence_embeddings is not None:
             x = sequence_embeddings.to(self.device)
         else:
-            processed_batch = {'input_ids': tokens, 'labels': tokens}
+            processed_batch = {'input_ids': tokens, 'input_tokens': tokens, 'labels': tokens}
             if self.args.aa_embeddings == "MSA_Transformer":
                 x, _, _ = get_embeddings_MSA_Transformer(self.aa_embedding, processed_batch, self.alphabet_size, return_pseudo_ll=False, fast_MSA_mode=False)
             elif self.args.aa_embeddings.startswith("ESM"):

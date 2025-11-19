@@ -207,6 +207,11 @@ def mask_protein_sequences(inputs, alphabet, proba_aa_mask=0.15, proba_random_mu
     - Replace with random amino acid (proba_random_mutation = 0.1 by default)
     - Leave unchanged (proba_unchanged = 0.1 by default)
 
+    Special handling for X (unknown/ambiguous amino acids):
+    - X positions are ALWAYS masked (replaced with <mask> token)
+    - X positions are EXCLUDED from reconstruction loss (labels set to -100)
+    - This applies during both training and inference
+
     Args:
         inputs (torch.Tensor): Batched token sequences
         alphabet: Tokenizer alphabet for protein sequences
@@ -217,13 +222,22 @@ def mask_protein_sequences(inputs, alphabet, proba_aa_mask=0.15, proba_random_mu
     Returns:
         tuple: (masked_inputs, labels, masked_indices)
             - masked_inputs: Input sequences with masking applied
-            - labels: Original tokens (-100 for unmasked positions)
+            - labels: Original tokens (-100 for unmasked positions and X positions)
             - masked_indices: Boolean tensor indicating masked positions
 
     Note:
         Adapted from HuggingFace transformers library
     """
     labels = inputs.clone() # B, N, C
+
+    # Always mask X amino acids (unknown/ambiguous positions), but don't include in reconstruction loss
+    # since the ground truth label is X (not a real amino acid to predict)
+    x_token_idx = alphabet.tok_to_idx.get('X', None)
+    if x_token_idx is not None:
+        x_mask = inputs == x_token_idx
+        inputs[x_mask] = alphabet.mask_idx  # Replace X with <mask> token in input
+        labels[x_mask] = -100  # Don't compute loss on X positions (ground truth is unknown)
+
     all_special_tokens = torch.tensor([alphabet.tok_to_idx[x] for x in alphabet.all_special_tokens])
     probability_tensor = torch.full(labels.shape, proba_aa_mask)
     # Ensure we do not mask any special token
